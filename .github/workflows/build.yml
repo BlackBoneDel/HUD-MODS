@@ -47,7 +47,16 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run tests and build
-        run: ./gradlew --no-daemon clean test build
+        id: gradle_build
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon clean test build 2>&1 | tee "${RUNNER_TEMP}/gradle-output.log"
+
+      - name: Emit failure summary annotation if Gradle failed
+        if: failure() && steps.gradle_build.outcome == 'failure'
+        shell: bash
+        run: python3 scripts/ci-summary.py --emit-failure-annotation
 
       - name: Validate remapped mod JAR and write checksums
         run: python3 scripts/validate-jar.py
