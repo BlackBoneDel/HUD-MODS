@@ -72,7 +72,7 @@ public final class ConfigManager {
 				save();
 			}
 			return this.config;
-		} catch (JsonParseException | IOException | RuntimeException ex) {
+		} catch (IOException | RuntimeException ex) {
 			LOGGER.log(System.Logger.Level.WARNING, "Failed to read HUD config; backing up corrupt file and restoring defaults", ex);
 			backupCorruptFile();
 			this.config = HudConfig.createDefault();

@@ -99,7 +99,7 @@ public final class MainConfigScreen extends AbstractScrollableConfigScreen {
 		int applyBtnW = 92;
 		int presetW = panelW - applyBtnW - 6;
 		addScrollWidget(
-				CycleButton.builder((PresetId p) -> Component.translatable(p.translationKey()), () -> selectedPreset)
+				CycleButton.builder((PresetId p) -> Component.translatable(p.translationKey()), selectedPreset)
 						.withValues(List.of(PresetId.values()))
 						.create(leftX, 0, presetW, 20, Component.translatable("customizablehud.option.preset"), (btn, value) -> selectedPreset = value),
 				y

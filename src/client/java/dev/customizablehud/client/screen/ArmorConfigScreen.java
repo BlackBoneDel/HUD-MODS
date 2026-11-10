@@ -50,7 +50,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 				y
 		);
 		addScrollWidget(
-				CycleButton.builder((ArmorVisualStyle s) -> Component.translatable(s.translationKey()), () -> armor.style)
+				CycleButton.builder((ArmorVisualStyle s) -> Component.translatable(s.translationKey()), armor.style)
 						.withValues(List.of(ArmorVisualStyle.values()))
 						.create(rightX, 0, halfW, 20, Component.translatable("customizablehud.option.style"), (btn, val) -> armor.style = val),
 				y
@@ -58,7 +58,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
-				CycleButton.builder((HudAnchor a) -> Component.translatable(a.translationKey()), () -> armor.anchor)
+				CycleButton.builder((HudAnchor a) -> Component.translatable(a.translationKey()), armor.anchor)
 						.withValues(List.of(HudAnchor.values()))
 						.create(leftX, 0, halfW, 20, Component.translatable("customizablehud.option.anchor"), (btn, val) -> {
 							armor.anchor = val;
@@ -70,7 +70,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 				y
 		);
 		addScrollWidget(
-				CycleButton.builder((HudOrientation o) -> Component.translatable(o.translationKey()), () -> armor.orientation)
+				CycleButton.builder((HudOrientation o) -> Component.translatable(o.translationKey()), armor.orientation)
 						.withValues(List.of(HudOrientation.values()))
 						.create(rightX, 0, halfW, 20, Component.translatable("customizablehud.option.orientation"), (btn, val) -> armor.orientation = val),
 				y
@@ -138,7 +138,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
-				CycleButton.builder((DurabilityDisplayMode m) -> Component.translatable(m.translationKey()), () -> armor.durabilityDisplayMode)
+				CycleButton.builder((DurabilityDisplayMode m) -> Component.translatable(m.translationKey()), armor.durabilityDisplayMode)
 						.withValues(List.of(DurabilityDisplayMode.values()))
 						.create(leftX, 0, halfW, 20, Component.translatable("customizablehud.armor.durability_mode"), (btn, val) -> armor.durabilityDisplayMode = val),
 				y

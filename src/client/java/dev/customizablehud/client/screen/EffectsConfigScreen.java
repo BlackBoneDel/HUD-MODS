@@ -49,7 +49,7 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 				y
 		);
 		addScrollWidget(
-				CycleButton.builder((VanillaEffectsMode m) -> Component.translatable(m.translationKey()), () -> effects.vanillaEffectsMode)
+				CycleButton.builder((VanillaEffectsMode m) -> Component.translatable(m.translationKey()), effects.vanillaEffectsMode)
 						.withValues(List.of(VanillaEffectsMode.values()))
 						.withTooltip(val -> Tooltip.create(Component.translatable("customizablehud.tooltip.vanilla_mode")))
 						.create(rightX, 0, halfW, 20, Component.translatable("customizablehud.effects.vanilla_mode"), (btn, val) -> effects.vanillaEffectsMode = val),
@@ -58,13 +58,13 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
-				CycleButton.builder((EffectsVisualStyle s) -> Component.translatable(s.translationKey()), () -> effects.style)
+				CycleButton.builder((EffectsVisualStyle s) -> Component.translatable(s.translationKey()), effects.style)
 						.withValues(List.of(EffectsVisualStyle.values()))
 						.create(leftX, 0, halfW, 20, Component.translatable("customizablehud.option.style"), (btn, val) -> effects.style = val),
 				y
 		);
 		addScrollWidget(
-				CycleButton.builder((HudAnchor a) -> Component.translatable(a.translationKey()), () -> effects.anchor)
+				CycleButton.builder((HudAnchor a) -> Component.translatable(a.translationKey()), effects.anchor)
 						.withValues(List.of(HudAnchor.values()))
 						.create(rightX, 0, halfW, 20, Component.translatable("customizablehud.option.anchor"), (btn, val) -> {
 							effects.anchor = val;
@@ -78,7 +78,7 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
-				CycleButton.builder((HudOrientation o) -> Component.translatable(o.translationKey()), () -> effects.orientation)
+				CycleButton.builder((HudOrientation o) -> Component.translatable(o.translationKey()), effects.orientation)
 						.withValues(List.of(HudOrientation.values()))
 						.create(leftX, 0, halfW, 20, Component.translatable("customizablehud.option.orientation"), (btn, val) -> effects.orientation = val),
 				y
@@ -162,7 +162,7 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 				y
 		);
 		addScrollWidget(
-				CycleButton.builder((LevelFormat f) -> Component.translatable(f.translationKey()), () -> effects.levelFormat)
+				CycleButton.builder((LevelFormat f) -> Component.translatable(f.translationKey()), effects.levelFormat)
 						.withValues(List.of(LevelFormat.values()))
 						.create(rightX, 0, halfW, 20, Component.translatable("customizablehud.effects.level_format"), (btn, val) -> effects.levelFormat = val),
 				y
@@ -191,7 +191,7 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
-				CycleButton.builder((EffectSortMode s) -> Component.translatable(s.translationKey()), () -> effects.sortMode)
+				CycleButton.builder((EffectSortMode s) -> Component.translatable(s.translationKey()), effects.sortMode)
 						.withValues(List.of(EffectSortMode.values()))
 						.create(leftX, 0, panelW, 20, Component.translatable("customizablehud.effects.sort_mode"), (btn, val) -> effects.sortMode = val),
 				y
