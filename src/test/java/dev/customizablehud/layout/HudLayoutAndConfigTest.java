@@ -48,7 +48,7 @@ class HudLayoutAndConfigTest {
 		for (int i = 0; i < standard.slots().size(); i++) {
 			ArmorSlotPlacement p = standard.slots().get(i);
 			assertTrue(p.textBlockHeight() >= HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT);
-			assertTrue(p.height() >= p.boxSize() + p.textBlockHeight());
+			assertTrue(p.unscaledHeight() >= p.slotBoxSize() + p.textBlockHeight());
 			if (i + 1 < standard.slots().size()) {
 				assertTrue(p.screenBounds().right() <= standard.slots().get(i + 1).screenBounds().x());
 			}
