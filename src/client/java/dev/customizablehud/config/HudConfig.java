@@ -1,9 +1,10 @@
 package dev.customizablehud.config;
 
 public final class HudConfig {
-	public static final int CURRENT_SCHEMA_VERSION = 1;
+	public static final int CURRENT_SCHEMA_VERSION = 2;
 
 	public int schemaVersion = CURRENT_SCHEMA_VERSION;
+	public ModLanguage language = ModLanguage.ENGLISH;
 	public ArmorConfig armor = new ArmorConfig();
 	public EffectsConfig effects = new EffectsConfig();
 	public VisibilityConfig visibility = new VisibilityConfig();
@@ -18,6 +19,7 @@ public final class HudConfig {
 	public HudConfig copy() {
 		HudConfig copy = new HudConfig();
 		copy.schemaVersion = schemaVersion;
+		copy.language = language != null ? language : ModLanguage.ENGLISH;
 		copy.armor = armor != null ? armor.copy() : new ArmorConfig();
 		copy.effects = effects != null ? effects.copy() : new EffectsConfig();
 		copy.visibility = visibility != null ? visibility.copy() : new VisibilityConfig();

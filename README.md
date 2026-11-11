@@ -27,19 +27,19 @@ Instalación:
 ## Módulos incluidos
 
 ### 1. HUD de Armadura
-- **Posición por defecto**: fila horizontal compacta junto a la izquierda de la hotbar (`HOTBAR_LEFT`), estilo `VANILLA_HOTBAR`, mostrando las 4 piezas de armadura (`Casco → Pechera → Pantalones → Botas`).
+- **Posición por defecto**: fila horizontal compacta junto a la izquierda de la hotbar (`HOTBAR_LEFT`), estilo `VANILLA_HOTBAR`, mostrando las 4 piezas de armadura (`Casco → Pechera → Pantalones → Botas`) con separación compacta equivalente a la barra rápida.
 - **Información mostrada**:
   - Icono real del objeto (y silueta vanilla tenue cuando la ranura está vacía y no se ocultan vacías).
-  - Barra de durabilidad opcional.
-  - Durabilidad restante y porcentaje simultáneamente (`153 · 75%` por defecto, con opción de incluir máximo `153/203 · 75%`, solo `%`, solo puntos u oculto).
-  - Nombre del objeto (desactivado por defecto).
+  - Barra de durabilidad opcional sincronizada con los mismos rangos y colores de durabilidad.
+  - Métrica única situada centrada encima de cada icono correspondiente: **Solo %** (`PERCENT_ONLY` por defecto), **Solo puntos** (`POINTS_ONLY`, opcionalmente `153/203`) u **Oculto** (`NONE`) — nunca puntos y porcentaje simultáneamente.
+  - Nombre del objeto (desactivado por defecto, incluye nombres personalizados de yunque sin solaparse entre ranuras).
 - **Manos adicionales**: interruptores independientes para **Mano principal** y **Mano secundaria** (desactivados por defecto).
 - **Estilos visuales**: `Hotbar vanilla`, `Ranura inventario`, `Minimalista` y `Sin bordes`.
-- **Personalización y seguridad**:
-  - Orientación `Horizontal` / `Vertical`, escala (`0.50x` – `2.50x`), espaciado, anclajes estándar y personalizados, ocultar ranuras vacías, reordenamiento de piezas y modo individual por pieza.
+- **Umbrales y seguridad**:
+  - Rango de colores en 3 niveles evaluado sin redondear (`>60%` sano/verde, `<=60%` y `>20%` aviso/amarillo, `<=20%` crítico/rojo), con umbrales y colores configurables por el usuario y parpadeo opcional (desactivado por defecto).
+  - Orientación `Horizontal` / `Vertical`, escala (`0.50x` – `2.50x`), espaciado, anclajes estándar y personalizados, ocultar ranuras vacías, reordenamiento de piezas, vista previa en vivo (con muestras si no hay ítems) y modo individual por pieza.
   - Respeta automáticamente F1 (`hideGui`, al integrarse con las capas vanilla de `HudElementRegistry`) y permite configurar ocultación en inventario, chat y menú de pausa.
-  - Coloreado por rango de durabilidad y aviso visual de baja durabilidad (sin sonido, desactivados por defecto).
-  - Manejo seguro de ranuras vacías, objetos irrompibles (`∞`), objetos sin durabilidad y objetos de otros mods.
+  - Manejo seguro de ranuras vacías, objetos irrompibles (`∞`), objetos sin durabilidad (como calabazas o cabezas, sin reportar `100%`) y objetos de otros mods.
 
 ### 2. HUD de Efectos
 - **Posición por defecto**: lista vertical compacta estilo Minecraft en la esquina superior izquierda (`TOP_LEFT`), estilo `Compacto Minecraft`.
@@ -47,6 +47,9 @@ Instalación:
   - Por defecto en modo **`Ambos` (`SHOW_BOTH`)**: mantiene intacto el HUD vanilla de efectos y muestra también el HUD personalizado.
   - Modos disponibles: `Ambos`, `Solo personalizado` (implementado mediante `HudElementRegistry.replaceElement(VanillaHudElements.STATUS_EFFECTS, ...)`) y `Solo vanilla`.
   - Si desactivas el módulo de Efectos, el HUD vanilla permanece siempre intacto.
+- **Fondo, borde y colores por efecto**:
+  - Interruptores independientes para **Fondo del efecto** y **Borde del efecto** (las 4 combinaciones disponibles tanto en partida como en la vista previa en vivo).
+  - Pantalla dedicada **Colores por efecto** con buscador para efectos vanilla y modificados, paleta accesible (incluyendo rosa `#FF66B2`), entrada `#RRGGBB` validada, toggle independiente y botón restablecer; aplica el color únicamente al nombre y al tiempo sin teñir jamás el icono del efecto.
 - **Elementos configurables de forma independiente**:
   - Icono del efecto (con respaldo gráfico seguro si un efecto de otro mod no tiene sprite estándar).
   - Nombre, duración (`m:ss`, `h:mm:ss`, `∞` para duración infinita y consciente del tickrate) y nivel.
@@ -77,14 +80,16 @@ Los atajos nunca se disparan mientras hay pantallas abiertas ni al escribir en c
 
 ---
 
-## Presets y configuración (`config/customizablehud.json`)
+## Idioma, tooltips y configuración (`config/customizablehud.json`)
 
-Presets rápidos incluidos:
-1. **Vanilla compacto**: configuración equilibrada predeterminada (`HOTBAR_LEFT`, `153 · 75%`, efectos compactos arriba a la izquierda, `Ambos`).
-2. **Texto compacto**: diseño ligero vertical centrado a la izquierda, sin bordes, incluye mano principal y secundaria, efectos minimalistas.
-3. **Lectura ampliada**: escala aumentada, máximo de durabilidad visible (`153/203 · 75%`), nombres de objeto, aviso de baja durabilidad y tarjetas limpias.
+- **Idioma del mod independiente (`English` / `Español`)**: selector directo en la pantalla principal que actualiza al instante pantallas, tooltips, mensajes y textos del HUD sin reiniciar ni modificar el idioma global de Minecraft, respetando resource packs.
+- **Tooltips contextuales**: cada control, selector cíclico y deslizador muestra ayuda contextual tanto con ratón como con navegación por teclado.
+- **Presets rápidos**:
+  1. **Vanilla compacto**: configuración equilibrada predeterminada (`HOTBAR_LEFT`, `Solo %`, efectos compactos arriba a la izquierda, `Ambos`).
+  2. **Texto compacto**: diseño ligero vertical centrado a la izquierda, sin bordes, incluye mano principal y secundaria, efectos minimalistas.
+  3. **Lectura ampliada**: escala aumentada, `Solo puntos` con máximo visible (`153/203`), nombres de objeto, aviso de baja durabilidad y tarjetas limpias.
 
-El archivo `config/customizablehud.json` incluye `schemaVersion`, validación y saneamiento automático de valores fuera de rango, escritura atómica segura y respaldo automático (`.corrupt-*.bak`) si el JSON está dañado.
+El archivo `config/customizablehud.json` (actualmente `schemaVersion = 2`) incluye migración automática desde versiones previas, validación y saneamiento automático, guardado automático con debounce, flush al cerrar pantalla / desconectar / detener el cliente, estado real (`Guardado` / `Sin guardar` / `Error al guardar`), escritura atómica segura y respaldo (`.corrupt-*.bak`) si el JSON está dañado.
 
 ---
 

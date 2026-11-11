@@ -16,6 +16,9 @@ import java.util.Map;
 
 public final class HudLayoutEngine {
 	public static final float HORIZONTAL_ARMOR_TEXT_SCALE = 0.72f;
+	public static final int ARMOR_TEXT_LINE_HEIGHT = 8;
+	public static final int ARMOR_TEXT_ICON_GAP = 2;
+	public static final int HAND_SEPARATOR_GAP = 6;
 	public static final int UNSCALED_LINE_HEIGHT = 9;
 	private static final int SNAP_THRESHOLD = 4;
 
@@ -27,12 +30,12 @@ public final class HudLayoutEngine {
 
 	public static int slotBoxSizeFor(ArmorVisualStyle style) {
 		if (style == null) {
-			return 22;
+			return 20;
 		}
 		return switch (style) {
-			case VANILLA_HOTBAR -> 22;
-			case INVENTORY_SLOT, MINIMAL -> 20;
-			case BORDERLESS -> 18;
+			case VANILLA_HOTBAR -> 20;
+			case INVENTORY_SLOT, MINIMAL -> 18;
+			case BORDERLESS -> 16;
 		};
 	}
 
@@ -137,50 +140,60 @@ public final class HudLayoutEngine {
 			return new ArmorLayoutResult(emptyOrigin.x(), emptyOrigin.y(), 0, 0, scale, emptyOrigin, List.of());
 		}
 
-		record CellSize(ArmorSlotMetric metric, int w, int h) {
+		record CellMetric(ArmorSlotMetric metric, int w, int rawTextH) {
 		}
 
-		List<CellSize> cells = new ArrayList<>(visible.size());
-		int totalW = 0;
-		int totalH = 0;
-
-		for (int i = 0; i < visible.size(); i++) {
-			ArmorSlotMetric metric = visible.get(i);
+		List<CellMetric> rawCells = new ArrayList<>(visible.size());
+		int maxRowTextH = 0;
+		for (ArmorSlotMetric metric : visible) {
 			boolean hasName = safeConfig.showItemName && metric.nameWidth() > 0;
 			boolean hasLabel = metric.labelWidth() > 0;
 			int lineCount = (hasName ? 1 : 0) + (hasLabel ? 1 : 0);
+			int rawTextH = lineCount > 0 ? lineCount * ARMOR_TEXT_LINE_HEIGHT : 0;
+			maxRowTextH = Math.max(maxRowTextH, rawTextH);
 
-			int cellW;
-			int cellH;
+			int maxRawTextW = Math.max(hasName ? metric.nameWidth() : 0, hasLabel ? metric.labelWidth() : 0);
+			int scaledTextW = maxRawTextW > 0 ? (int) Math.ceil(maxRawTextW * HORIZONTAL_ARMOR_TEXT_SCALE) + 2 : 0;
+			int cellW = Math.max(boxSize, scaledTextW);
+			if (cellW <= 0) {
+				cellW = 16;
+			}
+			rawCells.add(new CellMetric(metric, cellW, rawTextH));
+		}
+
+		record CellSize(ArmorSlotMetric metric, int w, int h, int textBlockH) {
+		}
+
+		List<CellSize> cells = new ArrayList<>(rawCells.size());
+		int totalW = 0;
+		int totalH = 0;
+		boolean prevWasArmorPiece = true;
+
+		for (int i = 0; i < rawCells.size(); i++) {
+			CellMetric raw = rawCells.get(i);
+			int effectiveTextH = (!vertical && !safeConfig.individualPositionsEnabled) ? maxRowTextH : raw.rawTextH();
+			int gapAboveIcon = (effectiveTextH > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
+			int cellH = effectiveTextH + gapAboveIcon + boxSize;
+			if (cellH <= 0) {
+				cellH = 14;
+			}
+			cells.add(new CellSize(raw.metric(), raw.w(), cellH, effectiveTextH));
+
+			int stepGap = 0;
+			if (i > 0) {
+				boolean isHand = !raw.metric().kind().isArmorPiece();
+				int handExtra = (prevWasArmorPiece && isHand) ? HAND_SEPARATOR_GAP : 0;
+				stepGap = spacing + handExtra;
+			}
+			prevWasArmorPiece = raw.metric().kind().isArmorPiece();
+
 			if (vertical) {
-				int textW = Math.max(hasName ? metric.nameWidth() : 0, hasLabel ? metric.labelWidth() : 0);
-				int textH = lineCount > 0 ? (lineCount * UNSCALED_LINE_HEIGHT + Math.max(0, lineCount - 1)) : 0;
-				cellW = boxSize + (textW > 0 ? (boxSize > 0 ? 4 : 0) + textW : 0);
-				cellH = Math.max(boxSize, textH);
-				if (cellW <= 0) {
-					cellW = 18;
-				}
-				if (cellH <= 0) {
-					cellH = 18;
-				}
-				totalW = Math.max(totalW, cellW);
-				totalH += cellH + (i > 0 ? spacing : 0);
+				totalW = Math.max(totalW, raw.w());
+				totalH += cellH + stepGap;
 			} else {
-				int maxRawTextW = Math.max(hasName ? metric.nameWidth() : 0, hasLabel ? metric.labelWidth() : 0);
-				int scaledTextW = maxRawTextW > 0 ? (int) Math.ceil(maxRawTextW * HORIZONTAL_ARMOR_TEXT_SCALE) + 2 : 0;
-				int textBlockH = lineCount > 0 ? lineCount * 8 : 0;
-				cellW = Math.max(boxSize, scaledTextW);
-				if (cellW <= 0) {
-					cellW = 18;
-				}
-				cellH = boxSize + (textBlockH > 0 ? (boxSize > 0 ? 2 : 0) + textBlockH : 0);
-				if (cellH <= 0) {
-					cellH = 14;
-				}
-				totalW += cellW + (i > 0 ? spacing : 0);
+				totalW += raw.w() + stepGap;
 				totalH = Math.max(totalH, cellH);
 			}
-			cells.add(new CellSize(metric, cellW, cellH));
 		}
 
 		int scaledTotalW = Math.max(1, Math.round(totalW * scale));
@@ -225,6 +238,7 @@ public final class HudLayoutEngine {
 						cell.w(),
 						cell.h(),
 						boxSize,
+						cell.textBlockH(),
 						slotRect
 				));
 				unionBounds = HudRect.union(unionBounds, slotRect);
@@ -234,7 +248,21 @@ public final class HudLayoutEngine {
 
 		int cursorX = 0;
 		int cursorY = 0;
-		for (CellSize cell : cells) {
+		prevWasArmorPiece = true;
+		for (int i = 0; i < cells.size(); i++) {
+			CellSize cell = cells.get(i);
+			if (i > 0) {
+				boolean isHand = !cell.metric().kind().isArmorPiece();
+				int handExtra = (prevWasArmorPiece && isHand) ? HAND_SEPARATOR_GAP : 0;
+				int stepGap = spacing + handExtra;
+				if (vertical) {
+					cursorY += stepGap;
+				} else {
+					cursorX += stepGap;
+				}
+			}
+			prevWasArmorPiece = cell.metric().kind().isArmorPiece();
+
 			int sx = originRect.x() + Math.round(cursorX * scale);
 			int sy = originRect.y() + Math.round(cursorY * scale);
 			int sw = Math.max(1, Math.round(cell.w() * scale));
@@ -246,12 +274,13 @@ public final class HudLayoutEngine {
 					cell.w(),
 					cell.h(),
 					boxSize,
+					cell.textBlockH(),
 					new HudRect(sx, sy, sw, sh)
 			));
 			if (vertical) {
-				cursorY += cell.h() + spacing;
+				cursorY += cell.h();
 			} else {
-				cursorX += cell.w() + spacing;
+				cursorX += cell.w();
 			}
 		}
 

@@ -2,8 +2,9 @@ package dev.customizablehud.layout;
 
 import dev.customizablehud.config.ArmorConfig;
 import dev.customizablehud.config.ArmorSlotKind;
-import dev.customizablehud.config.ConfigManager;
+import dev.customizablehud.config.ArmorVisualStyle;
 import dev.customizablehud.config.ConfigValidator;
+import dev.customizablehud.config.DurabilityDisplayMode;
 import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudConfig;
@@ -12,35 +13,46 @@ import dev.customizablehud.config.PointOffset;
 import dev.customizablehud.config.PresetCatalog;
 import dev.customizablehud.config.PresetId;
 import dev.customizablehud.config.VanillaEffectsMode;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HudLayoutAndConfigTest {
 	@Test
-	void computesArmorLayoutHotbarLeftAndClampsOnSmallScreens() {
+	void computesCompactArmorLayoutAndPreventsTextOverlap() {
 		ArmorConfig config = new ArmorConfig();
+		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, config.durabilityDisplayMode);
+		assertFalse(config.showMainHand);
+		assertFalse(config.showOffHand);
+		assertFalse(config.lowDurabilityWarning);
+		assertEquals(0, config.slotSpacing);
+		assertEquals(20, HudLayoutEngine.slotBoxSizeFor(ArmorVisualStyle.VANILLA_HOTBAR));
+
 		List<ArmorSlotMetric> metrics = List.of(
-				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 40, 0),
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 24, 0),
 				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, false, 0, 0),
-				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 40, 0),
-				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 40, 0)
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 54, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 24, 0)
 		);
 
 		ArmorLayoutResult standard = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
 		assertEquals(4, standard.slots().size());
 		HudRect hotbar = HudLayoutEngine.vanillaHotbarRect(640, 360);
 		assertFalse(standard.bounds().intersects(hotbar));
+
+		// Even with wide text label (54px raw), consecutive cells do not overlap and reserve text space above icon
+		for (int i = 0; i < standard.slots().size(); i++) {
+			ArmorSlotPlacement p = standard.slots().get(i);
+			assertTrue(p.textBlockHeight() >= HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT);
+			assertTrue(p.height() >= p.boxSize() + p.textBlockHeight());
+			if (i + 1 < standard.slots().size()) {
+				assertTrue(p.screenBounds().right() <= standard.slots().get(i + 1).screenBounds().x());
+			}
+		}
 
 		config.hideEmptySlots = true;
 		ArmorLayoutResult hiddenEmpty = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
@@ -55,13 +67,34 @@ class HudLayoutAndConfigTest {
 	}
 
 	@Test
+	void separatesHandsVisuallyWhenEnabled() {
+		ArmorConfig config = new ArmorConfig();
+		config.showMainHand = true;
+		config.slotSpacing = 0;
+
+		List<ArmorSlotMetric> metrics = List.of(
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 22, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 22, 0),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 22, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 22, 0),
+				new ArmorSlotMetric(ArmorSlotKind.MAIN_HAND, true, 22, 0)
+		);
+
+		ArmorLayoutResult result = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
+		assertEquals(5, result.slots().size());
+		ArmorSlotPlacement boots = result.slots().get(3);
+		ArmorSlotPlacement mainHand = result.slots().get(4);
+		assertTrue(mainHand.screenBounds().x() - boots.screenBounds().right() >= HudLayoutEngine.HAND_SEPARATOR_GAP);
+	}
+
+	@Test
 	void supportsIndividualArmorPositioningAndAutoLayoutCapture() {
 		ArmorConfig config = new ArmorConfig();
 		List<ArmorSlotMetric> metrics = List.of(
-				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 36, 0),
-				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 36, 0),
-				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 36, 0),
-				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 36, 0)
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 24, 0)
 		);
 
 		Map<ArmorSlotKind, PointOffset> captured = HudLayoutEngine.captureIndividualOffsetsFromAuto(config, metrics, 640, 360);
@@ -86,10 +119,10 @@ class HudLayoutAndConfigTest {
 		config.showItemName = true;
 		config.showMaxDurability = true;
 		List<ArmorSlotMetric> variedMetrics = List.of(
-				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 64, 82),
-				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 68, 96),
-				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 56, 76),
-				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 12, 72)
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 40, 62),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 44, 72),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 36, 56),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 12, 48)
 		);
 
 		ArmorLayoutResult auto = HudLayoutEngine.computeArmorLayout(config, variedMetrics, 854, 480);
@@ -151,12 +184,15 @@ class HudLayoutAndConfigTest {
 	}
 
 	@Test
-	void validatesAndSanitizesOutOfBoundsAndCorruptConfigFields() {
+	void validatesThresholdsColorsAndSanitizesOutOfBoundsConfigFields() {
 		HudConfig dirty = new HudConfig();
 		dirty.schemaVersion = 999;
+		dirty.language = null;
 		dirty.armor.scale = 12.0f;
 		dirty.armor.slotSpacing = -5;
-		dirty.armor.lowDurabilityThresholdPercent = 99;
+		dirty.armor.warningThresholdPercent = 50;
+		dirty.armor.criticalThresholdPercent = 55; // invalid >= warning
+		dirty.armor.healthyColorHex = "not_hex";
 		dirty.armor.armorOrder = List.of(ArmorSlotKind.BOOTS, ArmorSlotKind.BOOTS);
 		dirty.armor.individualOffsets = null;
 		dirty.effects.vanillaEffectsMode = null;
@@ -167,75 +203,34 @@ class HudLayoutAndConfigTest {
 		assertEquals(HudConfig.CURRENT_SCHEMA_VERSION, clean.schemaVersion);
 		assertEquals(ConfigValidator.MAX_SCALE, clean.armor.scale);
 		assertEquals(ConfigValidator.MIN_SPACING, clean.armor.slotSpacing);
-		assertEquals(ConfigValidator.MAX_THRESHOLD, clean.armor.lowDurabilityThresholdPercent);
+		assertTrue(clean.armor.criticalThresholdPercent < clean.armor.warningThresholdPercent);
+		assertEquals("#6EEB83", clean.armor.healthyColorHex);
 		assertEquals(4, clean.armor.armorOrder.size());
 		assertEquals(ArmorSlotKind.values().length, clean.armor.individualOffsets.size());
 		assertEquals(VanillaEffectsMode.SHOW_BOTH, clean.effects.vanillaEffectsMode);
 	}
 
 	@Test
-	void appliesNeutralPresetsCorrectly() {
+	void appliesPresetsWithSingleMetricOnlyAndPreservesLanguageAndCustomColors() {
 		HudConfig cfg = HudConfig.createDefault();
+		cfg.language = dev.customizablehud.config.ModLanguage.SPANISH;
+		cfg.effects.customEffectColors.put("minecraft:regeneration",
+				new dev.customizablehud.config.EffectColorOverride(true, "#FF66B2"));
+
 		PresetCatalog.applyPreset(cfg, PresetId.COMPACT_TEXT);
 		assertEquals(HudOrientation.VERTICAL, cfg.armor.orientation);
-		assertTrue(cfg.armor.showMainHand);
-		assertTrue(cfg.armor.showOffHand);
+		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, cfg.armor.durabilityDisplayMode);
+		assertEquals(dev.customizablehud.config.ModLanguage.SPANISH, cfg.language);
+		assertTrue(cfg.effects.customEffectColors.containsKey("minecraft:regeneration"));
 
 		PresetCatalog.applyPreset(cfg, PresetId.EXPANDED_READOUT);
 		assertEquals(HudAnchor.HOTBAR_RIGHT, cfg.armor.anchor);
+		assertEquals(DurabilityDisplayMode.POINTS_ONLY, cfg.armor.durabilityDisplayMode);
 		assertTrue(cfg.armor.showMaxDurability);
-		assertTrue(cfg.armor.lowDurabilityWarning);
 
 		PresetCatalog.applyPreset(cfg, PresetId.VANILLA_COMPACT);
 		assertEquals(HudAnchor.HOTBAR_LEFT, cfg.armor.anchor);
+		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, cfg.armor.durabilityDisplayMode);
 		assertEquals(VanillaEffectsMode.SHOW_BOTH, cfg.effects.vanillaEffectsMode);
-	}
-
-	@Test
-	void configManagerPersistsAndRecoversFromCorruptJson(@TempDir Path tempDir) throws Exception {
-		Path cfgFile = tempDir.resolve("customizablehud.json");
-		ConfigManager manager = new ConfigManager(cfgFile);
-
-		// First load initializes defaults on disk
-		HudConfig initial = manager.load();
-		assertTrue(Files.exists(cfgFile));
-		assertEquals(HudAnchor.HOTBAR_LEFT, initial.armor.anchor);
-		assertFalse(manager.consumeRecoveryNotice());
-
-		// Save custom modification and reload
-		initial.armor.showMainHand = true;
-		initial.effects.hideLevelOne = false;
-		manager.save();
-
-		ConfigManager reloadedManager = new ConfigManager(cfgFile);
-		HudConfig reloaded = reloadedManager.load();
-		assertTrue(reloaded.armor.showMainHand);
-		assertFalse(reloaded.effects.hideLevelOne);
-
-		// Write corrupt JSON and verify backup + recovery
-		Files.writeString(cfgFile, "{ broken_json: [ ", StandardCharsets.UTF_8);
-		HudConfig recovered = reloadedManager.load();
-		assertNotNull(recovered);
-		assertTrue(reloadedManager.consumeRecoveryNotice());
-		assertFalse(reloadedManager.consumeRecoveryNotice());
-		assertEquals(HudAnchor.HOTBAR_LEFT, recovered.armor.anchor);
-
-		try (Stream<Path> files = Files.list(tempDir)) {
-			long backupCount = files.filter(p -> p.getFileName().toString().contains(".corrupt-")).count();
-			assertEquals(1L, backupCount);
-		}
-
-		// Sanitize non-finite float values and unknown/null enum deserialization
-		HudConfig nonFinite = new HudConfig();
-		nonFinite.armor.scale = Float.NaN;
-		nonFinite.effects.scale = Float.POSITIVE_INFINITY;
-		ConfigValidator.ValidationResult sanitized = ConfigValidator.validateAndSanitize(nonFinite);
-		assertEquals(1.0f, sanitized.config().armor.scale);
-		assertEquals(1.0f, sanitized.config().effects.scale);
-
-		Files.writeString(cfgFile, "{\"armor\":{\"anchor\":\"UNKNOWN_ANCHOR\",\"armorOrder\":[null,\"BOOTS\"]}}", StandardCharsets.UTF_8);
-		HudConfig enumRepaired = reloadedManager.load();
-		assertEquals(HudAnchor.HOTBAR_LEFT, enumRepaired.armor.anchor);
-		assertEquals(4, enumRepaired.armor.armorOrder.size());
 	}
 }

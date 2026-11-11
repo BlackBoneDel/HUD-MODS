@@ -1,6 +1,7 @@
 package dev.customizablehud.client.screen;
 
 import dev.customizablehud.config.HudConfig;
+import dev.customizablehud.layout.HudRect;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +17,7 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	protected static final int HEADER_HEIGHT = 38;
 	protected static final int FOOTER_HEIGHT = 34;
 	protected static final int ROW_HEIGHT = 24;
+	protected static final int COMPACT_PREVIEW_HEIGHT = 58;
 
 	private record ScrollWidgetEntry(AbstractWidget widget, int baseY) {
 	}
@@ -28,9 +30,64 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	private int scrollOffset = 0;
 	private int contentHeight = 0;
 	private boolean draggingScrollbar = false;
+	protected boolean compactPreviewExpanded = true;
 
-	protected AbstractScrollableConfigScreen(Component title, Screen parent, HudConfig workingConfig) {
-		super(title, parent, workingConfig);
+	protected AbstractScrollableConfigScreen(String titleKey, Screen parent, HudConfig workingConfig) {
+		super(titleKey, parent, workingConfig);
+	}
+
+	protected boolean hasPreviewPane() {
+		return false;
+	}
+
+	protected boolean isSidePreviewLayout() {
+		return hasPreviewPane() && this.width >= 540;
+	}
+
+	protected boolean isTopPreviewLayout() {
+		return hasPreviewPane() && !isSidePreviewLayout() && this.height >= 245 && compactPreviewExpanded;
+	}
+
+	protected boolean canShowPreview() {
+		return isSidePreviewLayout() || isTopPreviewLayout();
+	}
+
+	protected int contentPanelWidth() {
+		if (isSidePreviewLayout()) {
+			return Math.max(200, Math.min(350, this.width - 216));
+		}
+		return Math.max(180, Math.min(380, this.width - 28));
+	}
+
+	protected int contentLeftX() {
+		if (isSidePreviewLayout()) {
+			int panelW = contentPanelWidth();
+			int totalBlockW = panelW + 12 + sidePreviewWidth(panelW);
+			return Math.max(10, (this.width - totalBlockW) / 2);
+		}
+		return (this.width - contentPanelWidth()) / 2;
+	}
+
+	private int sidePreviewWidth(int panelW) {
+		return Math.max(150, Math.min(230, this.width - panelW - 36));
+	}
+
+	protected HudRect previewRect() {
+		if (isSidePreviewLayout()) {
+			int panelW = contentPanelWidth();
+			int leftX = contentLeftX();
+			int px = leftX + panelW + 12;
+			int pw = Math.max(120, Math.min(230, this.width - px - 12));
+			int py = HEADER_HEIGHT + 4;
+			int ph = Math.max(60, bodyBottom() - py);
+			return new HudRect(px, py, pw, ph);
+		}
+		if (isTopPreviewLayout()) {
+			int pw = contentPanelWidth();
+			int px = contentLeftX();
+			return new HudRect(px, HEADER_HEIGHT + 4, pw, COMPACT_PREVIEW_HEIGHT);
+		}
+		return HudRect.EMPTY;
 	}
 
 	protected void resetScrollContainer() {
@@ -41,6 +98,9 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	}
 
 	protected int bodyTop() {
+		if (isTopPreviewLayout()) {
+			return HEADER_HEIGHT + COMPACT_PREVIEW_HEIGHT + 8;
+		}
 		return HEADER_HEIGHT + 4;
 	}
 
@@ -79,6 +139,27 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 
 	private void clampScroll() {
 		scrollOffset = Mth.clamp(scrollOffset, 0, maxScroll());
+	}
+
+	@Override
+	public void setFocused(GuiEventListener focused) {
+		super.setFocused(focused);
+		if (focused instanceof AbstractWidget widget) {
+			for (ScrollWidgetEntry entry : scrollWidgets) {
+				if (entry.widget() == widget) {
+					int relTop = entry.baseY();
+					int relBottom = entry.baseY() + widget.getHeight();
+					if (relTop < scrollOffset) {
+						scrollOffset = relTop;
+						syncScrollPositions();
+					} else if (relBottom > scrollOffset + bodyHeight()) {
+						scrollOffset = Math.max(0, relBottom - bodyHeight());
+						syncScrollPositions();
+					}
+					break;
+				}
+			}
+		}
 	}
 
 	@Override
@@ -160,6 +241,9 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	}
 
 	private int scrollbarX() {
+		if (isSidePreviewLayout()) {
+			return contentLeftX() + contentPanelWidth() + 3;
+		}
 		return this.width - 10;
 	}
 
@@ -167,21 +251,25 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 		return null;
 	}
 
+	protected void renderPreviewPanel(GuiGraphics graphics, HudRect previewBox) {
+	}
+
 	@Override
 	public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
 		int top = bodyTop();
 		int bottom = bodyBottom();
-		graphics.fill(0, top, this.width, bottom, 0x55090D12);
-		boolean mouseInBody = mouseY >= top && mouseY <= bottom;
+		int bodyAreaRight = isSidePreviewLayout() ? (contentLeftX() + contentPanelWidth() + 8) : this.width;
+		graphics.fill(0, top, bodyAreaRight, bottom, 0x55090D12);
+		boolean mouseInBody = mouseY >= top && mouseY <= bottom && mouseX <= bodyAreaRight;
 		int bodyMouseX = mouseInBody ? mouseX : -10000;
 		int bodyMouseY = mouseInBody ? mouseY : -10000;
 
-		graphics.enableScissor(0, top, this.width, bottom);
+		graphics.enableScissor(0, top, bodyAreaRight, bottom);
 		for (SectionLabelEntry label : sectionLabels) {
 			int drawY = top + label.baseY() - scrollOffset;
 			if (drawY + 12 >= top && drawY <= bottom) {
 				graphics.drawString(this.font, label.text(), label.x(), drawY, 0xFF7FD4E6, true);
-				graphics.fill(label.x(), drawY + 10, Math.min(this.width - 18, label.x() + 260), drawY + 11, 0x447FD4E6);
+				graphics.fill(label.x(), drawY + 10, Math.min(bodyAreaRight - 14, label.x() + contentPanelWidth()), drawY + 11, 0x447FD4E6);
 			}
 		}
 		for (ScrollWidgetEntry entry : scrollWidgets) {
@@ -199,6 +287,13 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 			int thumbRange = Math.max(1, bodyHeight() - thumbH);
 			int thumbY = top + Math.round((scrollOffset / (float) maxScroll()) * thumbRange);
 			graphics.fill(trackX, thumbY, trackX + 4, thumbY + thumbH, 0xCC7FD4E6);
+		}
+
+		HudRect pBox = previewRect();
+		if (canShowPreview() && !pBox.isEmpty()) {
+			graphics.fill(pBox.x(), pBox.y(), pBox.right(), pBox.bottom(), 0xAA0B1017);
+			graphics.renderOutline(pBox.x(), pBox.y(), pBox.width(), pBox.height(), 0xFF334155);
+			renderPreviewPanel(graphics, pBox);
 		}
 
 		renderHeaderAndFooterChrome(graphics, HEADER_HEIGHT, this.height - FOOTER_HEIGHT, subtitleText());

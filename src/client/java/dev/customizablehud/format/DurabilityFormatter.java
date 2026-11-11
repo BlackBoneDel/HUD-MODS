@@ -1,9 +1,18 @@
 package dev.customizablehud.format;
 
 import dev.customizablehud.config.ArmorConfig;
+import dev.customizablehud.config.ColorHexUtils;
+import dev.customizablehud.config.ConfigValidator;
 import dev.customizablehud.config.DurabilityDisplayMode;
 
 public final class DurabilityFormatter {
+	public enum DurabilityLevel {
+		HEALTHY,
+		WARNING,
+		CRITICAL,
+		NONE
+	}
+
 	private DurabilityFormatter() {
 	}
 
@@ -13,23 +22,20 @@ public final class DurabilityFormatter {
 		}
 		DurabilityDisplayMode mode = config.durabilityDisplayMode != null
 				? config.durabilityDisplayMode
-				: DurabilityDisplayMode.POINTS_AND_PERCENT;
+				: DurabilityDisplayMode.PERCENT_ONLY;
 		if (mode == DurabilityDisplayMode.NONE) {
 			return "";
 		}
 		if (slot.unbreakable()) {
 			return "∞";
 		}
-		if (!slot.damageable() || slot.maxDamage() <= 0) {
+		if (!slot.hasValidDurability()) {
 			return "";
 		}
 		int remaining = slot.remaining();
 		int max = slot.maxDamage();
 		int percent = slot.remainingPercent();
 		return switch (mode) {
-			case POINTS_AND_PERCENT -> config.showMaxDurability
-					? remaining + "/" + max + " · " + percent + "%"
-					: remaining + " · " + percent + "%";
 			case PERCENT_ONLY -> percent + "%";
 			case POINTS_ONLY -> config.showMaxDurability
 					? remaining + "/" + max
@@ -38,51 +44,86 @@ public final class DurabilityFormatter {
 		};
 	}
 
+	public static DurabilityLevel classifyLevel(ArmorSlotSnapshot slot, ArmorConfig config) {
+		if (slot == null || config == null || !slot.hasValidDurability()) {
+			return DurabilityLevel.NONE;
+		}
+		int warning = ConfigValidator.clampInt(
+				config.warningThresholdPercent,
+				ConfigValidator.MIN_WARNING_THRESHOLD,
+				ConfigValidator.MAX_WARNING_THRESHOLD
+		);
+		int critical = ConfigValidator.clampInt(
+				config.criticalThresholdPercent,
+				ConfigValidator.MIN_CRITICAL_THRESHOLD,
+				ConfigValidator.MAX_CRITICAL_THRESHOLD
+		);
+		if (critical >= warning) {
+			critical = Math.max(0, warning - 1);
+		}
+
+		long remainingScaled = (long) slot.remaining() * 100L;
+		long criticalBound = (long) critical * (long) slot.maxDamage();
+		long warningBound = (long) warning * (long) slot.maxDamage();
+
+		if (remainingScaled <= criticalBound) {
+			return DurabilityLevel.CRITICAL;
+		}
+		if (remainingScaled <= warningBound) {
+			return DurabilityLevel.WARNING;
+		}
+		return DurabilityLevel.HEALTHY;
+	}
+
 	public static boolean isLowDurability(ArmorSlotSnapshot slot, ArmorConfig config) {
-		if (slot == null || config == null || !slot.present() || slot.unbreakable()) {
-			return false;
+		return classifyLevel(slot, config) == DurabilityLevel.CRITICAL;
+	}
+
+	public static int colorForLevel(DurabilityLevel level, ArmorConfig config) {
+		if (level == null || level == DurabilityLevel.NONE || config == null) {
+			return 0xFFFFFFFF;
 		}
-		if (!slot.damageable() || slot.maxDamage() <= 0) {
-			return false;
-		}
-		return slot.remainingPercent() <= config.lowDurabilityThresholdPercent;
+		return switch (level) {
+			case HEALTHY -> ColorHexUtils.parseOpaqueArgbOrDefault(config.healthyColorHex, 0x6EEB83);
+			case WARNING -> ColorHexUtils.parseOpaqueArgbOrDefault(config.warningColorHex, 0xFFE066);
+			case CRITICAL -> ColorHexUtils.parseOpaqueArgbOrDefault(config.criticalColorHex, 0xFF5555);
+			case NONE -> 0xFFFFFFFF;
+		};
 	}
 
 	public static int textColorArgb(ArmorSlotSnapshot slot, ArmorConfig config, long timeMillis) {
 		if (slot == null || !slot.present() || config == null) {
 			return 0xFFFFFFFF;
 		}
-		if (config.lowDurabilityWarning && isLowDurability(slot, config)) {
+		DurabilityLevel level = classifyLevel(slot, config);
+		if (config.lowDurabilityWarning && level == DurabilityLevel.CRITICAL) {
 			boolean flash = ((timeMillis / 350L) % 2L) == 0L;
-			return flash ? 0xFFFF5555 : 0xFFFFB84D;
+			return flash ? colorForLevel(DurabilityLevel.CRITICAL, config) : 0xFFFFB84D;
 		}
-		if (!config.colorByDurability || slot.unbreakable() || !slot.damageable() || slot.maxDamage() <= 0) {
+		if (!config.colorByDurability || level == DurabilityLevel.NONE) {
 			return 0xFFFFFFFF;
 		}
-		int pct = slot.remainingPercent();
-		if (pct >= 70) {
-			return 0xFF6EEB83;
+		return colorForLevel(level, config);
+	}
+
+	public static int barColorArgb(ArmorSlotSnapshot slot, ArmorConfig config) {
+		if (slot == null || config == null || !slot.hasValidDurability()) {
+			return 0xFF55FF55;
 		}
-		if (pct >= 40) {
-			return 0xFFFFE066;
+		if (config.colorByDurability) {
+			return colorForLevel(classifyLevel(slot, config), config);
 		}
-		if (pct > 15) {
-			return 0xFFFF9F43;
-		}
-		return 0xFFFF5C5C;
+		return barColorRgb(slot.resolvedBarFraction());
 	}
 
 	public static int barColorRgb(float fraction) {
 		float clamped = Math.max(0.0f, Math.min(1.0f, fraction));
-		if (clamped >= 0.70f) {
-			return 0xFF55FF55;
+		if (clamped > 0.60f) {
+			return 0xFF6EEB83;
 		}
-		if (clamped >= 0.40f) {
-			return 0xFFFFFF55;
+		if (clamped > 0.20f) {
+			return 0xFFFFE066;
 		}
-		if (clamped > 0.15f) {
-			return 0xFFFFAA33;
-		}
-		return 0xFFFF4444;
+		return 0xFFFF5555;
 	}
 }

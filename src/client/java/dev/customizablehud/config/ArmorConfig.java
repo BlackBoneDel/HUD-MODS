@@ -13,16 +13,20 @@ public final class ArmorConfig {
 	public float scale = 1.0f;
 	public HudOrientation orientation = HudOrientation.HORIZONTAL;
 	public ArmorVisualStyle style = ArmorVisualStyle.VANILLA_HOTBAR;
-	public int slotSpacing = 2;
+	public int slotSpacing = 0;
 	public boolean hideEmptySlots = false;
 	public boolean showIcon = true;
 	public boolean showDurabilityBar = true;
-	public DurabilityDisplayMode durabilityDisplayMode = DurabilityDisplayMode.POINTS_AND_PERCENT;
+	public DurabilityDisplayMode durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
 	public boolean showMaxDurability = false;
 	public boolean showItemName = false;
-	public boolean colorByDurability = false;
+	public boolean colorByDurability = true;
+	public int warningThresholdPercent = 60;
+	public int criticalThresholdPercent = 20;
+	public String healthyColorHex = "#6EEB83";
+	public String warningColorHex = "#FFE066";
+	public String criticalColorHex = "#FF5555";
 	public boolean lowDurabilityWarning = false;
-	public int lowDurabilityThresholdPercent = 15;
 	public boolean showMainHand = false;
 	public boolean showOffHand = false;
 	public boolean individualPositionsEnabled = false;
@@ -33,7 +37,7 @@ public final class ArmorConfig {
 		EnumMap<ArmorSlotKind, PointOffset> map = new EnumMap<>(ArmorSlotKind.class);
 		int index = 0;
 		for (ArmorSlotKind kind : ArmorSlotKind.values()) {
-			map.put(kind, new PointOffset(index * 24, 0));
+			map.put(kind, new PointOffset(index * 22, 0));
 			index++;
 		}
 		return map;
@@ -79,12 +83,16 @@ public final class ArmorConfig {
 		copy.showMaxDurability = showMaxDurability;
 		copy.showItemName = showItemName;
 		copy.colorByDurability = colorByDurability;
+		copy.warningThresholdPercent = warningThresholdPercent;
+		copy.criticalThresholdPercent = criticalThresholdPercent;
+		copy.healthyColorHex = healthyColorHex;
+		copy.warningColorHex = warningColorHex;
+		copy.criticalColorHex = criticalColorHex;
 		copy.lowDurabilityWarning = lowDurabilityWarning;
-		copy.lowDurabilityThresholdPercent = lowDurabilityThresholdPercent;
 		copy.showMainHand = showMainHand;
 		copy.showOffHand = showOffHand;
 		copy.individualPositionsEnabled = individualPositionsEnabled;
-		copy.armorOrder = new ArrayList<>(armorOrder);
+		copy.armorOrder = armorOrder != null ? new ArrayList<>(armorOrder) : new ArrayList<>(ArmorSlotKind.DEFAULT_ARMOR_ORDER);
 		copy.individualOffsets = new EnumMap<>(ArmorSlotKind.class);
 		for (ArmorSlotKind kind : ArmorSlotKind.values()) {
 			PointOffset offset = individualOffsets != null ? individualOffsets.get(kind) : null;

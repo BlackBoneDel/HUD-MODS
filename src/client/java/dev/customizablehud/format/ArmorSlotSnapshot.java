@@ -18,8 +18,12 @@ public record ArmorSlotSnapshot(
 		return new ArmorSlotSnapshot(kind, false, "", false, false, 0, 0, 0, false, 0.0f);
 	}
 
+	public boolean hasValidDurability() {
+		return present && damageable && !unbreakable && maxDamage > 0;
+	}
+
 	public int remaining() {
-		if (!present || !damageable || unbreakable || maxDamage <= 0) {
+		if (!hasValidDurability()) {
 			return 0;
 		}
 		int clampedDamage = Math.max(0, Math.min(maxDamage, damageValue));
@@ -27,23 +31,17 @@ public record ArmorSlotSnapshot(
 	}
 
 	public int remainingPercent() {
-		if (!present) {
+		if (!hasValidDurability()) {
 			return 0;
-		}
-		if (unbreakable || !damageable || maxDamage <= 0) {
-			return 100;
 		}
 		int clamped = Math.round((remaining() * 100.0f) / maxDamage);
 		return Math.max(0, Math.min(100, clamped));
 	}
 
 	public float resolvedBarFraction() {
-		if (!present) {
+		if (!hasValidDurability()) {
 			return 0.0f;
 		}
-		if (damageable && !unbreakable && maxDamage > 0) {
-			return Math.max(0.0f, Math.min(1.0f, (float) remaining() / (float) maxDamage));
-		}
-		return Math.max(0.0f, Math.min(1.0f, barFraction));
+		return Math.max(0.0f, Math.min(1.0f, (float) remaining() / (float) maxDamage));
 	}
 }

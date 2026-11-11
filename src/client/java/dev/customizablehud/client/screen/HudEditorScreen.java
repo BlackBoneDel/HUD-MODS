@@ -19,13 +19,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 
 public final class HudEditorScreen extends AbstractCustomizableScreen {
@@ -34,9 +34,11 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		EFFECTS
 	}
 
-	private static final int TOOLBAR_HEIGHT = 54;
+	private static final int ROW_STEP = 22;
+	private static final int PANEL_PAD = 4;
 
-	private final Consumer<HudConfig> onSave;
+	private final HudConfig entrySnapshot;
+	private final Consumer<HudConfig> onSyncParent;
 	private ModuleTarget selectedModule;
 	private ArmorSlotKind selectedArmorSlot = ArmorSlotKind.HELMET;
 	private boolean dockAtTop = false;
@@ -57,20 +59,30 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 	private Button autoLayoutBtn;
 	private Button snapBtn;
 	private Button dockBtn;
+	private Button cancelBtn;
+	private Button saveLayoutBtn;
+	private Button doneBtn;
 	private boolean suppressEditBoxSync;
 
-	public HudEditorScreen(Screen parent, HudConfig workingConfig, Consumer<HudConfig> onSave) {
-		this(parent, workingConfig, onSave, ModuleTarget.ARMOR);
+	private int computedToolbarHeight = 52;
+
+	public HudEditorScreen(Screen parent, HudConfig workingConfig, Consumer<HudConfig> onSyncParent) {
+		this(parent, workingConfig, onSyncParent, ModuleTarget.ARMOR);
 	}
 
-	public HudEditorScreen(Screen parent, HudConfig workingConfig, Consumer<HudConfig> onSave, ModuleTarget initialTarget) {
-		super(Component.translatable("customizablehud.screen.editor.title"), parent, workingConfig);
-		this.onSave = onSave;
+	public HudEditorScreen(Screen parent, HudConfig workingConfig, Consumer<HudConfig> onSyncParent, ModuleTarget initialTarget) {
+		super("customizablehud.screen.editor.title", parent, workingConfig);
+		this.entrySnapshot = workingConfig.copy();
+		this.onSyncParent = onSyncParent;
 		this.selectedModule = initialTarget != null ? initialTarget : ModuleTarget.ARMOR;
 	}
 
+	public boolean isDragging() {
+		return draggingElement;
+	}
+
 	private int toolbarWidth() {
-		return Math.max(160, Math.min(440, this.width - 12));
+		return Math.max(180, Math.min(500, this.width - 12));
 	}
 
 	private int toolbarX(int panelW) {
@@ -78,70 +90,60 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 	}
 
 	private int toolbarY() {
-		return dockAtTop ? 2 : (this.height - TOOLBAR_HEIGHT - 2);
+		return dockAtTop ? 2 : Math.max(2, this.height - computedToolbarHeight - 2);
 	}
 
 	private boolean isInsideToolbar(double x, double y) {
 		int panelW = toolbarWidth();
 		int panelX = toolbarX(panelW);
 		int panelY = toolbarY();
-		return x >= panelX && x <= panelX + panelW && y >= panelY && y <= panelY + TOOLBAR_HEIGHT;
+		return x >= panelX && x <= panelX + panelW && y >= panelY && y <= panelY + computedToolbarHeight;
 	}
 
 	@Override
 	protected void init() {
 		int panelW = toolbarWidth();
 		int panelX = toolbarX(panelW);
-		int innerW = panelW - 8;
-		int row1Y = toolbarY() + 4;
-		int row2Y = row1Y + 24;
-
+		int innerW = panelW - PANEL_PAD * 2;
 		int gap = 3;
-		int targetW = Math.max(54, (innerW * 17) / 100);
-		int enabledW = Math.max(60, (innerW * 18) / 100);
-		int editBoxW = 38;
-		int dockW = Math.max(52, (innerW * 15) / 100);
-		int sliderW = Math.max(56, innerW - targetW - enabledW - editBoxW - dockW - gap * 4);
-		int rx = panelX + 4;
 
-		selectTargetBtn = addRenderableWidget(
-				Button.builder(Component.empty(), btn -> {
-					selectedModule = selectedModule == ModuleTarget.ARMOR ? ModuleTarget.EFFECTS : ModuleTarget.ARMOR;
-					syncControlsFromSelection();
-				}).bounds(rx, row1Y, targetW, 20).build()
+		selectTargetBtn = Button.builder(Component.empty(), btn -> {
+			selectedModule = selectedModule == ModuleTarget.ARMOR ? ModuleTarget.EFFECTS : ModuleTarget.ARMOR;
+			syncControlsFromSelection();
+		}).bounds(0, 0, 56, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.target")))
+				.build();
+
+		toggleEnabledBtn = Button.builder(Component.empty(), btn -> {
+			if (selectedModule == ModuleTarget.ARMOR) {
+				workingConfig.armor.enabled = !workingConfig.armor.enabled;
+			} else {
+				workingConfig.effects.enabled = !workingConfig.effects.enabled;
+			}
+			notifyEditorChanged();
+			syncControlsFromSelection();
+		}).bounds(0, 0, 62, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.toggle_enabled")))
+				.build();
+
+		scaleSlider = new ScaleSliderButton(
+				0,
+				0,
+				80,
+				20,
+				t("customizablehud.option.scale"),
+				currentSelectedScale(),
+				val -> {
+					applyScale(val);
+					updateScaleEditBoxText(val);
+					notifyEditorChanged();
+				},
+				val -> t("customizablehud.tooltip.editor.scale", String.format(Locale.ROOT, "%.2fx", val))
 		);
-		rx += targetW + gap;
 
-		toggleEnabledBtn = addRenderableWidget(
-				Button.builder(Component.empty(), btn -> {
-					if (selectedModule == ModuleTarget.ARMOR) {
-						workingConfig.armor.enabled = !workingConfig.armor.enabled;
-					} else {
-						workingConfig.effects.enabled = !workingConfig.effects.enabled;
-					}
-					syncControlsFromSelection();
-				}).bounds(rx, row1Y, enabledW, 20).build()
-		);
-		rx += enabledW + gap;
-
-		scaleSlider = addRenderableWidget(
-				new ScaleSliderButton(
-						rx,
-						row1Y,
-						sliderW,
-						20,
-						Component.translatable("customizablehud.option.scale"),
-						currentSelectedScale(),
-						val -> {
-							applyScale(val);
-							updateScaleEditBoxText(val);
-						}
-				)
-		);
-		rx += sliderW + gap;
-
-		scaleEditBox = addRenderableWidget(new EditBox(this.font, rx, row1Y + 1, editBoxW, 18, Component.translatable("customizablehud.option.scale")));
+		scaleEditBox = new EditBox(this.font, 0, 0, 38, 18, t("customizablehud.option.scale"));
 		scaleEditBox.setMaxLength(5);
+		scaleEditBox.setTooltip(Tooltip.create(t("customizablehud.tooltip.editor.scale_input")));
 		scaleEditBox.setFilter(text -> text.matches("\\d*(\\.\\d*)?"));
 		scaleEditBox.setResponder(text -> {
 			if (suppressEditBoxSync || text == null || text.isBlank() || ".".equals(text)) {
@@ -153,76 +155,183 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 					float clamped = ConfigValidator.clampScale(parsed);
 					applyScale(clamped);
 					scaleSlider.setScaleValue(clamped);
+					notifyEditorChanged();
 				}
 			} catch (NumberFormatException ignored) {
 				// Wait for valid number input
 			}
 		});
-		rx += editBoxW + gap;
 
-		dockBtn = addRenderableWidget(
-				Button.builder(Component.empty(), btn -> {
-					dockAtTop = !dockAtTop;
-					this.rebuildWidgets();
-				}).bounds(rx, row1Y, dockW, 20)
-						.tooltip(Tooltip.create(Component.translatable("customizablehud.tooltip.move_toolbar")))
-						.build()
-		);
+		dockBtn = Button.builder(Component.empty(), btn -> {
+			dockAtTop = !dockAtTop;
+			this.rebuildWidgets();
+		}).bounds(0, 0, 56, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.move_toolbar")))
+				.build();
 
-		int r2Gap = 3;
-		int indivW = Math.max(64, (innerW * 22) / 100);
-		int autoW = Math.max(60, (innerW * 20) / 100);
-		int snapW = Math.max(50, (innerW * 16) / 100);
-		int cancelW = Math.max(52, (innerW * 17) / 100);
-		int saveW = Math.max(52, innerW - indivW - autoW - snapW - cancelW - r2Gap * 4);
-		int x2 = panelX + 4;
+		individualModeBtn = Button.builder(Component.empty(), btn -> {
+			toggleIndividualArmorMode();
+			notifyEditorChanged();
+		}).bounds(0, 0, 64, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.individual")))
+				.build();
 
-		individualModeBtn = addRenderableWidget(
-				Button.builder(Component.empty(), btn -> toggleIndividualArmorMode())
-						.bounds(x2, row2Y, indivW, 20)
-						.build()
-		);
-		x2 += indivW + r2Gap;
+		autoLayoutBtn = Button.builder(t("customizablehud.editor.auto_layout"), btn -> {
+			resetSelectedLayout();
+			notifyEditorChanged();
+		}).bounds(0, 0, 60, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.auto_layout")))
+				.build();
 
-		autoLayoutBtn = addRenderableWidget(
-				Button.builder(Component.translatable("customizablehud.editor.auto_layout"), btn -> resetSelectedLayout())
-						.bounds(x2, row2Y, autoW, 20)
-						.tooltip(Tooltip.create(Component.translatable("customizablehud.tooltip.auto_layout")))
-						.build()
-		);
-		x2 += autoW + r2Gap;
+		snapBtn = Button.builder(Component.empty(), btn -> {
+			workingConfig.editorSnapToGrid = !workingConfig.editorSnapToGrid;
+			notifyEditorChanged();
+			syncControlsFromSelection();
+		}).bounds(0, 0, 52, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.snap")))
+				.build();
 
-		snapBtn = addRenderableWidget(
-				Button.builder(Component.empty(), btn -> {
-					workingConfig.editorSnapToGrid = !workingConfig.editorSnapToGrid;
-					syncControlsFromSelection();
-				}).bounds(x2, row2Y, snapW, 20).build()
-		);
-		x2 += snapW + r2Gap;
+		cancelBtn = Button.builder(t("customizablehud.button.cancel"), btn -> cancelAndRevert())
+				.bounds(0, 0, 54, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.cancel")))
+				.build();
 
-		addRenderableWidget(
-				Button.builder(CommonComponents.GUI_CANCEL, btn -> onClose())
-						.bounds(x2, row2Y, cancelW, 20)
-						.build()
-		);
-		x2 += cancelW + r2Gap;
+		saveLayoutBtn = Button.builder(t("customizablehud.editor.save_layout"), btn -> {
+			boolean ok = saveConfigNow();
+			if (ok && onSyncParent != null) {
+				onSyncParent.accept(workingConfig.copy());
+			}
+		}).bounds(0, 0, 74, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.save_layout")))
+				.build();
 
-		addRenderableWidget(
-				Button.builder(Component.translatable("customizablehud.button.save"), btn -> {
-					if (onSave != null) {
-						onSave.accept(workingConfig.copy());
-					}
-					this.minecraft.setScreen(parent);
-				}).bounds(x2, row2Y, saveW, 20).build()
-		);
+		doneBtn = Button.builder(t("customizablehud.button.done"), btn -> onClose())
+				.bounds(0, 0, 48, 20)
+				.tooltip(Tooltip.create(t("customizablehud.tooltip.editor.done")))
+				.build();
+
+		record ControlSlot(AbstractWidget widget, int minW, int weight, boolean isEditBox) {
+		}
+
+		List<List<ControlSlot>> rows = new ArrayList<>();
+		if (innerW >= 380) {
+			rows.add(List.of(
+					new ControlSlot(selectTargetBtn, 52, 16, false),
+					new ControlSlot(toggleEnabledBtn, 58, 18, false),
+					new ControlSlot(scaleSlider, 70, 34, false),
+					new ControlSlot(scaleEditBox, 38, 10, true),
+					new ControlSlot(dockBtn, 52, 18, false)
+			));
+			rows.add(List.of(
+					new ControlSlot(individualModeBtn, 62, 18, false),
+					new ControlSlot(autoLayoutBtn, 56, 17, false),
+					new ControlSlot(snapBtn, 48, 14, false),
+					new ControlSlot(cancelBtn, 48, 15, false),
+					new ControlSlot(saveLayoutBtn, 68, 22, false),
+					new ControlSlot(doneBtn, 42, 14, false)
+			));
+		} else if (innerW >= 245) {
+			rows.add(List.of(
+					new ControlSlot(selectTargetBtn, 50, 22, false),
+					new ControlSlot(toggleEnabledBtn, 54, 24, false),
+					new ControlSlot(scaleSlider, 62, 30, false),
+					new ControlSlot(scaleEditBox, 36, 12, true)
+			));
+			rows.add(List.of(
+					new ControlSlot(individualModeBtn, 56, 26, false),
+					new ControlSlot(autoLayoutBtn, 52, 24, false),
+					new ControlSlot(snapBtn, 44, 22, false),
+					new ControlSlot(dockBtn, 48, 24, false)
+			));
+			rows.add(List.of(
+					new ControlSlot(cancelBtn, 54, 30, false),
+					new ControlSlot(saveLayoutBtn, 74, 42, false),
+					new ControlSlot(doneBtn, 48, 28, false)
+			));
+		} else {
+			rows.add(List.of(
+					new ControlSlot(selectTargetBtn, 50, 34, false),
+					new ControlSlot(toggleEnabledBtn, 54, 34, false),
+					new ControlSlot(dockBtn, 48, 32, false)
+			));
+			rows.add(List.of(
+					new ControlSlot(scaleSlider, 70, 75, false),
+					new ControlSlot(scaleEditBox, 36, 25, true)
+			));
+			rows.add(List.of(
+					new ControlSlot(individualModeBtn, 54, 36, false),
+					new ControlSlot(autoLayoutBtn, 52, 34, false),
+					new ControlSlot(snapBtn, 44, 30, false)
+			));
+			rows.add(List.of(
+					new ControlSlot(cancelBtn, 48, 30, false),
+					new ControlSlot(saveLayoutBtn, 64, 42, false),
+					new ControlSlot(doneBtn, 42, 28, false)
+			));
+		}
+
+		computedToolbarHeight = PANEL_PAD * 2 + rows.size() * 20 + Math.max(0, rows.size() - 1) * 2;
+		int startY = toolbarY() + PANEL_PAD;
+
+		for (int r = 0; r < rows.size(); r++) {
+			List<ControlSlot> row = rows.get(r);
+			int rowY = startY + r * ROW_STEP;
+			int avail = innerW - gap * (row.size() - 1);
+			int totalWeight = 0;
+			for (ControlSlot slot : row) {
+				totalWeight += slot.weight();
+			}
+			int[] widths = new int[row.size()];
+			int used = 0;
+			for (int i = 0; i < row.size(); i++) {
+				ControlSlot slot = row.get(i);
+				int w = (i == row.size() - 1)
+						? Math.max(24, avail - used)
+						: Math.max(24, Math.round((slot.weight() / (float) Math.max(1, totalWeight)) * avail));
+				widths[i] = w;
+				used += w;
+			}
+			int cx = panelX + PANEL_PAD;
+			for (int i = 0; i < row.size(); i++) {
+				ControlSlot slot = row.get(i);
+				AbstractWidget w = slot.widget();
+				w.setX(cx);
+				w.setY(slot.isEditBox() ? rowY + 1 : rowY);
+				w.setWidth(widths[i]);
+				addRenderableWidget(w);
+				cx += widths[i] + gap;
+			}
+		}
 
 		syncControlsFromSelection();
+	}
+
+	private void notifyEditorChanged() {
+		notifyConfigEdited();
+		if (onSyncParent != null) {
+			onSyncParent.accept(workingConfig.copy());
+		}
+	}
+
+	private void cancelAndRevert() {
+		syncWorkingFromManager(entrySnapshot);
+		saveConfigNow();
+		if (onSyncParent != null) {
+			onSyncParent.accept(workingConfig.copy());
+		}
+		this.minecraft.setScreen(parent);
 	}
 
 	private void toggleIndividualArmorMode() {
 		ArmorConfig armor = workingConfig.armor;
 		if (!armor.individualPositionsEnabled) {
-			List<ArmorSlotKind> visibleKinds = ArmorHudRenderer.captureIndividualPositionsFromAuto(this.minecraft, armor, this.width, this.height);
+			List<ArmorSlotKind> visibleKinds = ArmorHudRenderer.captureIndividualPositionsFromAuto(
+					this.minecraft,
+					armor,
+					activeLang(),
+					this.width,
+					this.height
+			);
 			armor.individualPositionsEnabled = true;
 			if (!visibleKinds.isEmpty()) {
 				selectedArmorSlot = visibleKinds.getFirst();
@@ -276,11 +385,11 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		if (selectTargetBtn == null) {
 			return;
 		}
-		selectTargetBtn.setMessage(Component.translatable(
+		selectTargetBtn.setMessage(t(
 				selectedModule == ModuleTarget.ARMOR ? "customizablehud.editor.target_armor" : "customizablehud.editor.target_effects"
 		));
 		boolean enabled = selectedModule == ModuleTarget.ARMOR ? workingConfig.armor.enabled : workingConfig.effects.enabled;
-		toggleEnabledBtn.setMessage(Component.translatable(
+		toggleEnabledBtn.setMessage(t(
 				enabled ? "customizablehud.state.enabled" : "customizablehud.state.disabled"
 		));
 		float scale = currentSelectedScale();
@@ -288,15 +397,15 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		updateScaleEditBoxText(scale);
 
 		individualModeBtn.active = selectedModule == ModuleTarget.ARMOR;
-		individualModeBtn.setMessage(Component.translatable(
+		individualModeBtn.setMessage(t(
 				workingConfig.armor.individualPositionsEnabled
 						? "customizablehud.editor.individual_on"
 						: "customizablehud.editor.individual_off"
 		));
-		snapBtn.setMessage(Component.translatable(
+		snapBtn.setMessage(t(
 				workingConfig.editorSnapToGrid ? "customizablehud.editor.snap_on" : "customizablehud.editor.snap_off"
 		));
-		dockBtn.setMessage(Component.translatable(
+		dockBtn.setMessage(t(
 				dockAtTop ? "customizablehud.editor.dock_bottom" : "customizablehud.editor.dock_top"
 		));
 	}
@@ -327,7 +436,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		graphics.renderOutline(offhandRef.x(), offhandRef.y(), offhandRef.width(), offhandRef.height(), 0x4494A3B8);
 		graphics.drawCenteredString(
 				this.font,
-				Component.translatable("customizablehud.editor.hotbar_ref"),
+				t("customizablehud.editor.hotbar_ref"),
 				hotbarRef.centerX(),
 				hotbarRef.y() + 7,
 				0x77CBD5E1
@@ -337,12 +446,14 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 				graphics,
 				this.minecraft,
 				workingConfig.armor,
+				activeLang(),
 				workingConfig.armor.enabled ? 1.0f : 0.38f
 		);
 		lastEffectsLayout = EffectsHudRenderer.renderForEditor(
 				graphics,
 				this.minecraft,
 				workingConfig.effects,
+				activeLang(),
 				workingConfig.effects.enabled ? 1.0f : 0.38f
 		);
 
@@ -368,10 +479,10 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 
 		// Overlap warning indicator
 		if (detectEditorOverlap(hotbarRef)) {
-			Component warn = Component.translatable("customizablehud.editor.overlap_warning");
+			Component warn = t("customizablehud.editor.overlap_warning");
 			int warnW = this.font.width(warn) + 14;
 			int warnX = (this.width - warnW) / 2;
-			int warnY = dockAtTop ? (TOOLBAR_HEIGHT + 10) : 8;
+			int warnY = dockAtTop ? (computedToolbarHeight + 10) : 8;
 			graphics.fill(warnX, warnY, warnX + warnW, warnY + 14, 0xCC78350F);
 			graphics.renderOutline(warnX, warnY, warnW, 14, 0xFFF59E0B);
 			graphics.drawCenteredString(this.font, warn, this.width / 2, warnY + 3, 0xFFFDE68A);
@@ -381,14 +492,16 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		int panelW = toolbarWidth();
 		int panelX = toolbarX(panelW);
 		int panelY = toolbarY();
-		graphics.fill(panelX, panelY, panelX + panelW, panelY + TOOLBAR_HEIGHT, 0xD80D1117);
-		graphics.renderOutline(panelX, panelY, panelW, TOOLBAR_HEIGHT, 0xFF334155);
+		graphics.fill(panelX, panelY, panelX + panelW, panelY + computedToolbarHeight, 0xD80D1117);
+		graphics.renderOutline(panelX, panelY, panelW, computedToolbarHeight, 0xFF334155);
 
-		Component hint = Component.translatable("customizablehud.editor.hint");
-		int hintY = dockAtTop ? (panelY + TOOLBAR_HEIGHT + 3) : (panelY - 11);
+		Component hint = t("customizablehud.editor.hint");
+		int hintY = dockAtTop ? (panelY + computedToolbarHeight + 3) : (panelY - 11);
 		if (!detectEditorOverlap(hotbarRef) || !dockAtTop) {
 			graphics.drawCenteredString(this.font, hint, this.width / 2, hintY, 0xCC94A3B8);
 		}
+
+		renderSaveStatusBadge(graphics, 8, dockAtTop ? (this.height - 19) : 6);
 
 		super.render(graphics, mouseX, mouseY, partialTick);
 	}
@@ -428,13 +541,13 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 	private Component buildBadgeText(ModuleTarget target, boolean enabled) {
 		Component base = target == ModuleTarget.ARMOR
 				? (workingConfig.armor.individualPositionsEnabled && selectedModule == ModuleTarget.ARMOR
-				? Component.translatable(selectedArmorSlot.translationKey())
-				: Component.translatable("customizablehud.module.armor"))
-				: Component.translatable("customizablehud.module.effects");
+				? t(selectedArmorSlot.translationKey())
+				: t("customizablehud.module.armor"))
+				: t("customizablehud.module.effects");
 		if (enabled) {
 			return base;
 		}
-		return Component.empty().append(base).append(" (").append(Component.translatable("customizablehud.badge.disabled")).append(")");
+		return Component.empty().append(base).append(" (").append(t("customizablehud.badge.disabled")).append(")");
 	}
 
 	private boolean detectEditorOverlap(HudRect hotbarRef) {
@@ -535,6 +648,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		if (draggingElement && event.button() == 0) {
 			draggingElement = false;
 			activeGuides = List.of();
+			notifyEditorChanged();
 			return true;
 		}
 		return super.mouseReleased(event);
@@ -568,6 +682,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		}
 		if (dx != 0 || dy != 0) {
 			nudgeSelected(dx, dy);
+			notifyEditorChanged();
 			return true;
 		}
 		return super.keyPressed(event);
@@ -712,6 +827,10 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 
 	@Override
 	public void onClose() {
+		flushPendingOnExit();
+		if (onSyncParent != null) {
+			onSyncParent.accept(workingConfig.copy());
+		}
 		this.minecraft.setScreen(parent);
 	}
 }

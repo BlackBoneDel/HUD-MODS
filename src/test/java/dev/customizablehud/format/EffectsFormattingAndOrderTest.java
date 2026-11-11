@@ -1,12 +1,17 @@
 package dev.customizablehud.format;
 
+import dev.customizablehud.config.EffectColorOverride;
 import dev.customizablehud.config.EffectSortMode;
 import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.LevelFormat;
+import dev.customizablehud.config.VanillaEffectsMode;
 import java.util.List;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EffectsFormattingAndOrderTest {
 	@Test
@@ -95,5 +100,42 @@ class EffectsFormattingAndOrderTest {
 		assertEquals(0xFFFF6B6B, DurationFormatter.durationColorArgb(200, 20.0f, false, true));
 		assertEquals(0xFFFFD166, DurationFormatter.durationColorArgb(400, 20.0f, false, true));
 		assertEquals(0xFFE6EDF3, DurationFormatter.durationColorArgb(800, 20.0f, false, true));
+	}
+
+	@Test
+	void resolvesPerEffectCustomColorsOnlyForTextAndNeverTintsIcons() {
+		EffectsConfig config = new EffectsConfig();
+		assertTrue(config.showEffectBackground);
+		assertTrue(config.showEffectBorder);
+		assertEquals(VanillaEffectsMode.SHOW_BOTH, config.vanillaEffectsMode);
+
+		// All 4 combinations of independent background/border toggles copy cleanly
+		config.showEffectBackground = false;
+		config.showEffectBorder = true;
+		EffectsConfig copy = config.copy();
+		assertFalse(copy.showEffectBackground);
+		assertTrue(copy.showEffectBorder);
+
+		EffectSnapshot regen = new EffectSnapshot(
+				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 120, false, false, true, true, 0xCD5CAB
+		);
+		EffectSnapshot modded = new EffectSnapshot(
+				"examplemod:mana_regen", "Mana Regen", EffectCategoryKind.BENEFICIAL, 1, 600, false, false, true, true, 0x3366FF
+		);
+
+		config.customEffectColors.put("minecraft:regeneration", new EffectColorOverride(true, "#FF66B2"));
+		config.customEffectColors.put("examplemod:mana_regen", new EffectColorOverride(false, "#55FFFF"));
+
+		assertEquals(OptionalInt.of(0xFF66B2), EffectsColorResolver.resolveCustomRgb("minecraft:regeneration", config));
+		assertEquals(0xFFFF66B2, EffectsColorResolver.titleColorArgb(regen, config));
+		assertEquals(0xFFFF66B2, EffectsColorResolver.durationColorArgb(regen, config, 20.0f));
+
+		// Disabled override preserves hex in map, but falls back to default title/duration colors
+		assertEquals(OptionalInt.empty(), EffectsColorResolver.resolveCustomRgb("examplemod:mana_regen", config));
+		assertEquals(EffectsColorResolver.DEFAULT_TITLE_COLOR_ARGB, EffectsColorResolver.titleColorArgb(modded, config));
+		assertEquals(0xFFE6EDF3, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
+
+		// Icons remain pure white untinted (alpha only) regardless of custom text color
+		assertEquals(0xFFFFFFFF, EffectsColorResolver.iconTintArgb(1.0f));
 	}
 }

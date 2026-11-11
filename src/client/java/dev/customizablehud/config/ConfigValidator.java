@@ -2,8 +2,12 @@ package dev.customizablehud.config;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 public final class ConfigValidator {
 	public static final float MIN_SCALE = 0.50f;
@@ -12,10 +16,15 @@ public final class ConfigValidator {
 	public static final int MAX_SPACING = 16;
 	public static final int MIN_OFFSET = -4000;
 	public static final int MAX_OFFSET = 4000;
-	public static final int MIN_THRESHOLD = 1;
-	public static final int MAX_THRESHOLD = 50;
+	public static final int MIN_CRITICAL_THRESHOLD = 0;
+	public static final int MAX_CRITICAL_THRESHOLD = 99;
+	public static final int MIN_WARNING_THRESHOLD = 1;
+	public static final int MAX_WARNING_THRESHOLD = 100;
 	public static final int MIN_GRID_SIZE = 1;
 	public static final int MAX_GRID_SIZE = 32;
+
+	private static final Pattern NAMESPACED_ID_PATTERN = Pattern.compile("^[a-z0-9_.-]+:[a-z0-9/._-]+$");
+	private static final Pattern PATH_ONLY_PATTERN = Pattern.compile("^[a-z0-9/._-]+$");
 
 	private ConfigValidator() {
 	}
@@ -32,6 +41,10 @@ public final class ConfigValidator {
 		HudConfig cfg = input.copy();
 		if (cfg.schemaVersion <= 0 || cfg.schemaVersion > HudConfig.CURRENT_SCHEMA_VERSION) {
 			cfg.schemaVersion = HudConfig.CURRENT_SCHEMA_VERSION;
+			modified = true;
+		}
+		if (input.language == null) {
+			cfg.language = ModLanguage.ENGLISH;
 			modified = true;
 		}
 
@@ -60,6 +73,26 @@ public final class ConfigValidator {
 		return new ValidationResult(cfg, modified);
 	}
 
+	public static Optional<String> normalizeEffectId(String rawId) {
+		if (rawId == null) {
+			return Optional.empty();
+		}
+		String trimmed = rawId.trim().toLowerCase(Locale.ROOT);
+		if (trimmed.isEmpty()) {
+			return Optional.empty();
+		}
+		if (!trimmed.contains(":")) {
+			if (PATH_ONLY_PATTERN.matcher(trimmed).matches()) {
+				return Optional.of("minecraft:" + trimmed);
+			}
+			return Optional.empty();
+		}
+		if (NAMESPACED_ID_PATTERN.matcher(trimmed).matches()) {
+			return Optional.of(trimmed);
+		}
+		return Optional.empty();
+	}
+
 	private static boolean sanitizeArmor(ArmorConfig armor) {
 		boolean modified = false;
 		if (armor.anchor == null) {
@@ -75,7 +108,7 @@ public final class ConfigValidator {
 			modified = true;
 		}
 		if (armor.durabilityDisplayMode == null) {
-			armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_AND_PERCENT;
+			armor.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
 			modified = true;
 		}
 
@@ -99,9 +132,36 @@ public final class ConfigValidator {
 			modified = true;
 		}
 
-		int clampedThreshold = clampInt(armor.lowDurabilityThresholdPercent, MIN_THRESHOLD, MAX_THRESHOLD);
-		if (clampedThreshold != armor.lowDurabilityThresholdPercent) {
-			armor.lowDurabilityThresholdPercent = clampedThreshold;
+		int clampedWarn = clampInt(armor.warningThresholdPercent, MIN_WARNING_THRESHOLD, MAX_WARNING_THRESHOLD);
+		int clampedCrit = clampInt(armor.criticalThresholdPercent, MIN_CRITICAL_THRESHOLD, MAX_CRITICAL_THRESHOLD);
+		if (clampedWarn != armor.warningThresholdPercent || clampedCrit != armor.criticalThresholdPercent) {
+			armor.warningThresholdPercent = clampedWarn;
+			armor.criticalThresholdPercent = clampedCrit;
+			modified = true;
+		}
+		if (armor.criticalThresholdPercent >= armor.warningThresholdPercent) {
+			if (armor.warningThresholdPercent > MIN_CRITICAL_THRESHOLD) {
+				armor.criticalThresholdPercent = armor.warningThresholdPercent - 1;
+			} else {
+				armor.criticalThresholdPercent = 20;
+				armor.warningThresholdPercent = 60;
+			}
+			modified = true;
+		}
+
+		String healthy = ColorHexUtils.normalizeOrDefault(armor.healthyColorHex, "#6EEB83");
+		if (!healthy.equals(armor.healthyColorHex)) {
+			armor.healthyColorHex = healthy;
+			modified = true;
+		}
+		String warning = ColorHexUtils.normalizeOrDefault(armor.warningColorHex, "#FFE066");
+		if (!warning.equals(armor.warningColorHex)) {
+			armor.warningColorHex = warning;
+			modified = true;
+		}
+		String critical = ColorHexUtils.normalizeOrDefault(armor.criticalColorHex, "#FF5555");
+		if (!critical.equals(armor.criticalColorHex)) {
+			armor.criticalColorHex = critical;
 			modified = true;
 		}
 
@@ -193,6 +253,31 @@ public final class ConfigValidator {
 			effects.offsetX = clampedOffsetX;
 			effects.offsetY = clampedOffsetY;
 			modified = true;
+		}
+
+		if (effects.customEffectColors == null) {
+			effects.customEffectColors = new LinkedHashMap<>();
+			modified = true;
+		} else {
+			Map<String, EffectColorOverride> cleaned = new LinkedHashMap<>();
+			for (Map.Entry<String, EffectColorOverride> entry : effects.customEffectColors.entrySet()) {
+				Optional<String> normId = normalizeEffectId(entry.getKey());
+				EffectColorOverride override = entry.getValue();
+				if (normId.isEmpty() || override == null) {
+					modified = true;
+					continue;
+				}
+				Optional<String> normHex = ColorHexUtils.normalizeHex(override.colorHex);
+				if (normHex.isEmpty()) {
+					modified = true;
+					continue;
+				}
+				if (!normId.get().equals(entry.getKey()) || !normHex.get().equals(override.colorHex)) {
+					modified = true;
+				}
+				cleaned.put(normId.get(), new EffectColorOverride(override.enabled, normHex.get()));
+			}
+			effects.customEffectColors = cleaned;
 		}
 
 		return modified;

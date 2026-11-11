@@ -1,18 +1,23 @@
 package dev.customizablehud.config;
 
 public enum DurabilityDisplayMode {
-	POINTS_AND_PERCENT("customizablehud.durability.mode.points_and_percent"),
-	PERCENT_ONLY("customizablehud.durability.mode.percent_only"),
-	POINTS_ONLY("customizablehud.durability.mode.points_only"),
-	NONE("customizablehud.durability.mode.none");
+	PERCENT_ONLY("customizablehud.durability.mode.percent_only", "customizablehud.tooltip.durability_mode.percent_only"),
+	POINTS_ONLY("customizablehud.durability.mode.points_only", "customizablehud.tooltip.durability_mode.points_only"),
+	NONE("customizablehud.durability.mode.none", "customizablehud.tooltip.durability_mode.none");
 
 	private final String translationKey;
+	private final String tooltipKey;
 
-	DurabilityDisplayMode(String translationKey) {
+	DurabilityDisplayMode(String translationKey, String tooltipKey) {
 		this.translationKey = translationKey;
+		this.tooltipKey = tooltipKey;
 	}
 
 	public String translationKey() {
 		return translationKey;
+	}
+
+	public String tooltipKey() {
+		return tooltipKey;
 	}
 }

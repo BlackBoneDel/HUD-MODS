@@ -1,5 +1,8 @@
 package dev.customizablehud.config;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public final class PresetCatalog {
 	private PresetCatalog() {
 	}
@@ -15,6 +18,15 @@ public final class PresetCatalog {
 			return;
 		}
 		target.schemaVersion = HudConfig.CURRENT_SCHEMA_VERSION;
+		Map<String, EffectColorOverride> preservedColors = new LinkedHashMap<>();
+		if (target.effects != null && target.effects.customEffectColors != null) {
+			for (Map.Entry<String, EffectColorOverride> entry : target.effects.customEffectColors.entrySet()) {
+				if (entry.getKey() != null && entry.getValue() != null) {
+					preservedColors.put(entry.getKey(), entry.getValue().copy());
+				}
+			}
+		}
+
 		switch (presetId) {
 			case VANILLA_COMPACT -> {
 				target.armor = new ArmorConfig();
@@ -30,7 +42,7 @@ public final class PresetCatalog {
 				armor.scale = 0.90f;
 				armor.showIcon = true;
 				armor.showDurabilityBar = false;
-				armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_AND_PERCENT;
+				armor.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
 				armor.showMaxDurability = false;
 				armor.showItemName = false;
 				armor.colorByDurability = true;
@@ -46,6 +58,8 @@ public final class PresetCatalog {
 				effects.style = EffectsVisualStyle.MINIMAL_TEXT;
 				effects.rowSpacing = 1;
 				effects.scale = 0.90f;
+				effects.showEffectBackground = false;
+				effects.showEffectBorder = false;
 				effects.showIcon = true;
 				effects.showName = true;
 				effects.showDuration = true;
@@ -61,16 +75,17 @@ public final class PresetCatalog {
 				armor.anchor = HudAnchor.HOTBAR_RIGHT;
 				armor.orientation = HudOrientation.HORIZONTAL;
 				armor.style = ArmorVisualStyle.INVENTORY_SLOT;
-				armor.slotSpacing = 3;
+				armor.slotSpacing = 1;
 				armor.scale = 1.15f;
 				armor.showIcon = true;
 				armor.showDurabilityBar = true;
-				armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_AND_PERCENT;
+				armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_ONLY;
 				armor.showMaxDurability = true;
 				armor.showItemName = true;
 				armor.colorByDurability = true;
 				armor.lowDurabilityWarning = true;
-				armor.lowDurabilityThresholdPercent = 20;
+				armor.criticalThresholdPercent = 20;
+				armor.warningThresholdPercent = 60;
 				armor.showMainHand = false;
 				armor.showOffHand = true;
 				target.armor = armor;
@@ -82,6 +97,8 @@ public final class PresetCatalog {
 				effects.style = EffectsVisualStyle.CLEAN_CARD;
 				effects.rowSpacing = 3;
 				effects.scale = 1.10f;
+				effects.showEffectBackground = true;
+				effects.showEffectBorder = true;
 				effects.showIcon = true;
 				effects.showName = true;
 				effects.showDuration = true;
@@ -93,5 +110,7 @@ public final class PresetCatalog {
 				target.effects = effects;
 			}
 		}
+
+		target.effects.customEffectColors = preservedColors;
 	}
 }

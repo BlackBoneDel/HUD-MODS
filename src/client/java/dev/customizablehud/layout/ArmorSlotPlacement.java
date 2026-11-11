@@ -9,6 +9,7 @@ public record ArmorSlotPlacement(
 		int unscaledWidth,
 		int unscaledHeight,
 		int slotBoxSize,
+		int textBlockHeight,
 		HudRect screenBounds
 ) {
 }

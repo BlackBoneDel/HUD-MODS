@@ -3,9 +3,12 @@ package dev.customizablehud.client.hud;
 import dev.customizablehud.client.CustomizableHudClient;
 import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.EffectsVisualStyle;
+import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudConfig;
+import dev.customizablehud.config.ModLanguage;
 import dev.customizablehud.format.DurationFormatter;
 import dev.customizablehud.format.EffectSnapshot;
+import dev.customizablehud.format.EffectsColorResolver;
 import dev.customizablehud.format.RomanNumerals;
 import dev.customizablehud.layout.EffectRowMetric;
 import dev.customizablehud.layout.EffectRowPlacement;
@@ -43,17 +46,88 @@ public final class EffectsHudRenderer {
 		if (!VisibilityRules.shouldRenderLiveHud(client, config.visibility)) {
 			return;
 		}
-		render(graphics, client, config.effects, false, 1.0f);
+		render(graphics, client, config.effects, config.language, false, 1.0f);
 	}
 
-	public static EffectsLayoutResult renderForEditor(GuiGraphics graphics, Minecraft client, EffectsConfig effectsConfig, float alpha) {
-		return render(graphics, client, effectsConfig, true, alpha);
+	public static EffectsLayoutResult renderForEditor(
+			GuiGraphics graphics,
+			Minecraft client,
+			EffectsConfig effectsConfig,
+			ModLanguage language,
+			float alpha
+	) {
+		return render(graphics, client, effectsConfig, language, true, alpha);
 	}
 
-	public static EffectsLayoutResult computeLayout(Minecraft client, EffectsConfig effectsConfig, boolean previewFallback) {
-		List<LiveDataCollector.EffectRenderEntry> entries = LiveDataCollector.collectEffectEntries(client, effectsConfig, previewFallback);
+	public static void renderPreviewInBox(
+			GuiGraphics graphics,
+			Minecraft client,
+			EffectsConfig effectsConfig,
+			ModLanguage language,
+			int boxX,
+			int boxY,
+			int boxW,
+			int boxH,
+			float alpha,
+			String highlightEffectId
+	) {
+		if (client == null || effectsConfig == null || boxW <= 4 || boxH <= 4) {
+			return;
+		}
+		EffectsConfig previewConfig = effectsConfig.copy();
+		previewConfig.anchor = HudAnchor.TOP_LEFT;
+		previewConfig.offsetX = 0;
+		previewConfig.offsetY = 0;
+
+		List<LiveDataCollector.EffectRenderEntry> entries = LiveDataCollector.collectEffectEntries(
+				client,
+				previewConfig,
+				language,
+				true,
+				highlightEffectId
+		);
+		if (entries.isEmpty()) {
+			return;
+		}
+
+		Font font = client.font;
 		float tps = LiveDataCollector.currentTicksPerSecond(client);
-		return computeLayoutFromEntries(client.font, effectsConfig, entries, tps, client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight());
+		List<PreparedRow> rows = prepareRows(previewConfig, entries, tps);
+		List<EffectRowMetric> metrics = computeMetrics(font, rows);
+		EffectsLayoutResult layout = HudLayoutEngine.computeEffectsLayout(
+				previewConfig,
+				metrics,
+				Math.max(320, boxW),
+				Math.max(200, boxH)
+		);
+		if (layout.rows().isEmpty() || layout.unscaledWidth() <= 0 || layout.unscaledHeight() <= 0) {
+			return;
+		}
+
+		float maxAvailW = Math.max(12.0f, boxW - 10.0f);
+		float maxAvailH = Math.max(12.0f, boxH - 10.0f);
+		float fitScale = Math.min(layout.scale(), Math.min(maxAvailW / layout.unscaledWidth(), maxAvailH / layout.unscaledHeight()));
+		fitScale = Math.max(0.45f, fitScale);
+
+		int drawW = Math.round(layout.unscaledWidth() * fitScale);
+		int drawH = Math.round(layout.unscaledHeight() * fitScale);
+		int drawX = boxX + Math.max(0, (boxW - drawW) / 2);
+		int drawY = boxY + Math.max(0, (boxH - drawH) / 2);
+
+		EffectsVisualStyle style = previewConfig.style != null ? previewConfig.style : EffectsVisualStyle.MINECRAFT_COMPACT;
+		int iconBox = previewConfig.showIcon ? (style == EffectsVisualStyle.MINIMAL_TEXT ? 14 : 20) : 0;
+		int padX = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 4;
+
+		graphics.enableScissor(boxX, boxY, boxX + boxW, boxY + boxH);
+		Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(drawX, drawY);
+		pose.scale(fitScale, fitScale);
+		for (int i = 0; i < layout.rows().size() && i < rows.size(); i++) {
+			drawRow(graphics, font, previewConfig, style, rows.get(i), layout.rows().get(i), iconBox, padX, tps, alpha);
+		}
+		pose.popMatrix();
+		graphics.disableScissor();
 	}
 
 	private record PreparedRow(
@@ -63,15 +137,7 @@ public final class EffectsHudRenderer {
 	) {
 	}
 
-	private static EffectsLayoutResult computeLayoutFromEntries(
-			Font font,
-			EffectsConfig config,
-			List<LiveDataCollector.EffectRenderEntry> entries,
-			float tps,
-			int screenWidth,
-			int screenHeight
-	) {
-		List<PreparedRow> rows = prepareRows(config, entries, tps);
+	private static List<EffectRowMetric> computeMetrics(Font font, List<PreparedRow> rows) {
 		List<EffectRowMetric> metrics = new ArrayList<>(rows.size());
 		for (PreparedRow row : rows) {
 			metrics.add(new EffectRowMetric(
@@ -80,7 +146,7 @@ public final class EffectsHudRenderer {
 					row.duration().isEmpty() ? 0 : font.width(row.duration())
 			));
 		}
-		return HudLayoutEngine.computeEffectsLayout(config, metrics, screenWidth, screenHeight);
+		return metrics;
 	}
 
 	private static List<PreparedRow> prepareRows(EffectsConfig config, List<LiveDataCollector.EffectRenderEntry> entries, float tps) {
@@ -111,24 +177,18 @@ public final class EffectsHudRenderer {
 			GuiGraphics graphics,
 			Minecraft client,
 			EffectsConfig config,
+			ModLanguage language,
 			boolean previewFallback,
 			float alpha
 	) {
-		List<LiveDataCollector.EffectRenderEntry> entries = LiveDataCollector.collectEffectEntries(client, config, previewFallback);
+		List<LiveDataCollector.EffectRenderEntry> entries = LiveDataCollector.collectEffectEntries(client, config, language, previewFallback);
 		if (entries.isEmpty()) {
 			return HudLayoutEngine.computeEffectsLayout(config, List.of(), graphics.guiWidth(), graphics.guiHeight());
 		}
 		Font font = client.font;
 		float tps = LiveDataCollector.currentTicksPerSecond(client);
 		List<PreparedRow> rows = prepareRows(config, entries, tps);
-		List<EffectRowMetric> metrics = new ArrayList<>(rows.size());
-		for (PreparedRow row : rows) {
-			metrics.add(new EffectRowMetric(
-					row.entry().snapshot().id(),
-					row.title().isEmpty() ? 0 : font.width(row.title()),
-					row.duration().isEmpty() ? 0 : font.width(row.duration())
-			));
-		}
+		List<EffectRowMetric> metrics = computeMetrics(font, rows);
 		EffectsLayoutResult layout = HudLayoutEngine.computeEffectsLayout(config, metrics, graphics.guiWidth(), graphics.guiHeight());
 		if (layout.rows().isEmpty()) {
 			return layout;
@@ -171,33 +231,53 @@ public final class EffectsHudRenderer {
 		int w = placement.unscaledWidth();
 		int h = placement.unscaledHeight();
 
+		boolean drawBg = config.showEffectBackground;
+		boolean drawBorder = config.showEffectBorder;
+
 		switch (style) {
 			case MINECRAFT_COMPACT -> {
-				int bg = ARGB.colorFromFloat(0.62f * alpha, 0.07f, 0.09f, 0.12f);
-				int border = snap.ambient()
-						? ARGB.colorFromFloat(0.75f * alpha, 0.35f, 0.65f, 0.85f)
-						: ARGB.colorFromFloat(0.68f * alpha, 0.25f, 0.30f, 0.38f);
-				graphics.fill(x, y, x + w, y + h, bg);
-				graphics.renderOutline(x, y, w, h, border);
+				if (drawBg) {
+					int bg = ARGB.colorFromFloat(0.62f * alpha, 0.07f, 0.09f, 0.12f);
+					graphics.fill(x, y, x + w, y + h, bg);
+				}
+				if (drawBorder) {
+					int border = snap.ambient()
+							? ARGB.colorFromFloat(0.75f * alpha, 0.35f, 0.65f, 0.85f)
+							: ARGB.colorFromFloat(0.68f * alpha, 0.25f, 0.30f, 0.38f);
+					graphics.renderOutline(x, y, w, h, border);
+				}
 			}
 			case CLEAN_CARD -> {
-				int bg = ARGB.colorFromFloat(0.70f * alpha, 0.05f, 0.07f, 0.10f);
-				int border = ARGB.colorFromFloat(0.55f * alpha, 0.22f, 0.27f, 0.35f);
-				int accent = ARGB.color(alpha, ARGB.opaque(snap.colorRgb()));
-				graphics.fill(x, y, x + w, y + h, bg);
-				graphics.renderOutline(x, y, w, h, border);
-				graphics.fill(x + 1, y + 1, x + 3, y + h - 1, accent);
+				if (drawBg) {
+					int bg = ARGB.colorFromFloat(0.70f * alpha, 0.05f, 0.07f, 0.10f);
+					graphics.fill(x, y, x + w, y + h, bg);
+				}
+				if (drawBorder) {
+					int border = ARGB.colorFromFloat(0.55f * alpha, 0.22f, 0.27f, 0.35f);
+					graphics.renderOutline(x, y, w, h, border);
+				}
+				if (drawBg || drawBorder) {
+					int accentRgb = EffectsColorResolver.resolveCustomRgb(snap.id(), config).orElse(snap.colorRgb());
+					int accent = ARGB.color(alpha, ARGB.opaque(accentRgb));
+					graphics.fill(x + 1, y + 1, x + 3, y + h - 1, accent);
+				}
 			}
 			case MINIMAL_TEXT -> {
-				int bg = ARGB.colorFromFloat(0.32f * alpha, 0.0f, 0.0f, 0.0f);
-				graphics.fill(x, y, x + w, y + h, bg);
+				if (drawBg) {
+					int bg = ARGB.colorFromFloat(0.32f * alpha, 0.0f, 0.0f, 0.0f);
+					graphics.fill(x, y, x + w, y + h, bg);
+				}
+				if (drawBorder) {
+					int border = ARGB.colorFromFloat(0.55f * alpha, 0.35f, 0.42f, 0.54f);
+					graphics.renderOutline(x, y, w, h, border);
+				}
 			}
 		}
 
 		if (config.showIcon && iconBox > 0) {
 			int iconBoxX = x + padX;
 			int iconBoxY = y + (h - iconBox) / 2;
-			if (style == EffectsVisualStyle.MINECRAFT_COMPACT) {
+			if (style == EffectsVisualStyle.MINECRAFT_COMPACT && drawBg) {
 				Identifier frameSprite = snap.ambient() ? EFFECT_BACKGROUND_AMBIENT_SPRITE : EFFECT_BACKGROUND_SPRITE;
 				graphics.blitSprite(RenderPipelines.GUI_TEXTURED, frameSprite, iconBoxX, iconBoxY, iconBox, iconBox, ARGB.white(alpha));
 			}
@@ -211,11 +291,8 @@ public final class EffectsHudRenderer {
 		int textX = x + padX + (iconBox > 0 ? iconBox + 4 : 0);
 		String title = row.title();
 		String duration = row.duration();
-		int titleColor = ARGB.color(alpha, 0xFFF3F6FA);
-		int durationColor = ARGB.multiplyAlpha(
-				DurationFormatter.durationColorArgb(snap.durationTicks(), tps, snap.infinite(), config.colorDurationByRemaining),
-				alpha
-		);
+		int titleColor = ARGB.multiplyAlpha(EffectsColorResolver.titleColorArgb(snap, config), alpha);
+		int durationColor = ARGB.multiplyAlpha(EffectsColorResolver.durationColorArgb(snap, config, tps), alpha);
 
 		if (style == EffectsVisualStyle.MINIMAL_TEXT) {
 			int textY = y + Math.max(0, (h - font.lineHeight) / 2);
@@ -253,7 +330,8 @@ public final class EffectsHudRenderer {
 		if (holder != null && holder.unwrapKey().isPresent()) {
 			Identifier sprite = Gui.getMobEffectSprite(holder);
 			if (!MissingTextureAtlasSprite.getLocation().equals(sprite)) {
-				graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, x, y, size, size, ARGB.white(alpha));
+				// Never tint registered mob effect sprites; keep original texture colors intact.
+				graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, x, y, size, size, EffectsColorResolver.iconTintArgb(alpha));
 				return;
 			}
 		}
