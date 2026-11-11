@@ -77,7 +77,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		this.selectedModule = initialTarget != null ? initialTarget : ModuleTarget.ARMOR;
 	}
 
-	public boolean isDragging() {
+	public boolean isDraggingElement() {
 		return draggingElement;
 	}
 

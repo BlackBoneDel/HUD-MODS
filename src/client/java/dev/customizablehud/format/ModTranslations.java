@@ -57,7 +57,7 @@ public final class ModTranslations {
 				}
 			}
 			return Collections.unmodifiableMap(result);
-		} catch (RuntimeException ex) {
+		} catch (IOException | RuntimeException ex) {
 			return Collections.emptyMap();
 		}
 	}
