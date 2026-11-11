@@ -1,6 +1,7 @@
 package dev.customizablehud.layout;
 
 import dev.customizablehud.config.ArmorConfig;
+import dev.customizablehud.config.ArmorMetricPosition;
 import dev.customizablehud.config.ArmorSlotKind;
 import dev.customizablehud.config.ArmorVisualStyle;
 import dev.customizablehud.config.ConfigValidator;
@@ -25,6 +26,21 @@ public final class HudLayoutEngine {
 	private HudLayoutEngine() {
 	}
 
+	public enum ResizeCorner {
+		TOP_LEFT,
+		TOP_RIGHT,
+		BOTTOM_LEFT,
+		BOTTOM_RIGHT
+	}
+
+	public record ResizeResult(
+			float scale,
+			int offsetX,
+			int offsetY,
+			HudRect bounds
+	) {
+	}
+
 	public record SnapResult(int x, int y, List<GuideLine> guides) {
 	}
 
@@ -37,6 +53,14 @@ public final class HudLayoutEngine {
 			case INVENTORY_SLOT, MINIMAL -> 18;
 			case BORDERLESS -> 16;
 		};
+	}
+
+	public static int minSafeArmorSpacingFor(ArmorVisualStyle style, boolean showIcon) {
+		if (!showIcon) {
+			return 0;
+		}
+		int boxSize = slotBoxSizeFor(style);
+		return Math.max(ConfigValidator.MIN_ARMOR_SPACING, -(boxSize - 16));
 	}
 
 	public static HudRect vanillaHotbarRect(int screenWidth, int screenHeight) {
@@ -119,8 +143,17 @@ public final class HudLayoutEngine {
 		ArmorConfig safeConfig = config != null ? config : new ArmorConfig();
 		float scale = ConfigValidator.clampScale(safeConfig.scale);
 		int boxSize = safeConfig.showIcon ? slotBoxSizeFor(safeConfig.style) : 0;
-		int spacing = ConfigValidator.clampInt(safeConfig.slotSpacing, ConfigValidator.MIN_SPACING, ConfigValidator.MAX_SPACING);
+		int configuredSpacing = ConfigValidator.clampInt(
+				safeConfig.slotSpacing,
+				ConfigValidator.MIN_ARMOR_SPACING,
+				ConfigValidator.MAX_SPACING
+		);
+		int effectiveSpacing = Math.max(configuredSpacing, minSafeArmorSpacingFor(safeConfig.style, safeConfig.showIcon));
 		boolean vertical = safeConfig.orientation == HudOrientation.VERTICAL;
+		ArmorMetricPosition metricPos = safeConfig.metricPosition != null
+				? safeConfig.metricPosition
+				: ArmorMetricPosition.ABOVE;
+		boolean verticalSide = metricPos.isVerticalSide();
 
 		List<ArmorSlotMetric> visible = new ArrayList<>();
 		if (metrics != null) {
@@ -140,13 +173,14 @@ public final class HudLayoutEngine {
 			return new ArmorLayoutResult(emptyOrigin.x(), emptyOrigin.y(), 0, 0, scale, emptyOrigin, List.of());
 		}
 
-		record CellMetric(ArmorSlotMetric metric, int w, int rawTextH) {
+		record RawMetric(ArmorSlotMetric metric, int scaledTextW, int rawTextH) {
 		}
 
-		List<CellMetric> rawCells = new ArrayList<>(visible.size());
+		List<RawMetric> rawMetrics = new ArrayList<>(visible.size());
 		int maxRowTextH = 0;
+		int maxColTextW = 0;
 		for (ArmorSlotMetric metric : visible) {
-			boolean hasName = safeConfig.showItemName && metric.nameWidth() > 0;
+			boolean hasName = safeConfig.shouldShowNameFor(metric.kind()) && metric.nameWidth() > 0;
 			boolean hasLabel = metric.labelWidth() > 0;
 			int lineCount = (hasName ? 1 : 0) + (hasLabel ? 1 : 0);
 			int rawTextH = lineCount > 0 ? lineCount * ARMOR_TEXT_LINE_HEIGHT : 0;
@@ -154,62 +188,127 @@ public final class HudLayoutEngine {
 
 			int maxRawTextW = Math.max(hasName ? metric.nameWidth() : 0, hasLabel ? metric.labelWidth() : 0);
 			int scaledTextW = maxRawTextW > 0 ? (int) Math.ceil(maxRawTextW * HORIZONTAL_ARMOR_TEXT_SCALE) + 2 : 0;
-			int cellW = Math.max(boxSize, scaledTextW);
-			if (cellW <= 0) {
-				cellW = 16;
-			}
-			rawCells.add(new CellMetric(metric, cellW, rawTextH));
+			maxColTextW = Math.max(maxColTextW, scaledTextW);
+
+			rawMetrics.add(new RawMetric(metric, scaledTextW, rawTextH));
 		}
 
-		record CellSize(ArmorSlotMetric metric, int w, int h, int textBlockH) {
+		record CellSpec(
+				ArmorSlotMetric metric,
+				int w,
+				int h,
+				int actualTextW,
+				int rawTextH,
+				int textBlockH,
+				int iconOffsetX,
+				int iconOffsetY,
+				int textOffsetX,
+				int textOffsetY,
+				int textAreaWidth
+		) {
 		}
 
-		List<CellSize> cells = new ArrayList<>(rawCells.size());
-		int totalW = 0;
-		int totalH = 0;
-		boolean prevWasArmorPiece = true;
+		List<CellSpec> cells = new ArrayList<>(rawMetrics.size());
+		for (RawMetric raw : rawMetrics) {
+			int cellW;
+			int cellH;
+			int textBlockH;
+			int iconOffsetX;
+			int iconOffsetY;
+			int textOffsetX;
+			int textOffsetY;
+			int textAreaWidth;
 
-		for (int i = 0; i < rawCells.size(); i++) {
-			CellMetric raw = rawCells.get(i);
-			int effectiveTextH = (!vertical && !safeConfig.individualPositionsEnabled) ? maxRowTextH : raw.rawTextH();
-			int gapAboveIcon = (effectiveTextH > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
-			int cellH = effectiveTextH + gapAboveIcon + boxSize;
-			if (cellH <= 0) {
-				cellH = 14;
-			}
-			cells.add(new CellSize(raw.metric(), raw.w(), cellH, effectiveTextH));
-
-			int stepGap = 0;
-			if (i > 0) {
-				boolean isHand = !raw.metric().kind().isArmorPiece();
-				int handExtra = (prevWasArmorPiece && isHand) ? HAND_SEPARATOR_GAP : 0;
-				stepGap = spacing + handExtra;
-			}
-			prevWasArmorPiece = raw.metric().kind().isArmorPiece();
-
-			if (vertical) {
-				totalW = Math.max(totalW, raw.w());
-				totalH += cellH + stepGap;
+			if (verticalSide) {
+				int effectiveTextH = (!vertical && !safeConfig.individualPositionsEnabled) ? maxRowTextH : raw.rawTextH();
+				int gap = (effectiveTextH > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
+				cellW = Math.max(boxSize, raw.scaledTextW());
+				if (cellW <= 0) {
+					cellW = 16;
+				}
+				cellH = effectiveTextH + gap + boxSize;
+				if (cellH <= 0) {
+					cellH = 14;
+				}
+				textBlockH = effectiveTextH;
+				iconOffsetX = boxSize > 0 ? (cellW - boxSize) / 2 : 0;
+				textOffsetX = 0;
+				textAreaWidth = cellW;
+				if (metricPos == ArmorMetricPosition.ABOVE) {
+					textOffsetY = raw.rawTextH() > 0 ? Math.max(0, effectiveTextH - raw.rawTextH()) : 0;
+					iconOffsetY = boxSize > 0 ? (effectiveTextH + gap) : 0;
+				} else {
+					iconOffsetY = 0;
+					textOffsetY = boxSize > 0 ? (boxSize + gap) : 0;
+				}
 			} else {
-				totalW += raw.w() + stepGap;
-				totalH = Math.max(totalH, cellH);
+				int effectiveTextW = (vertical && !safeConfig.individualPositionsEnabled) ? maxColTextW : raw.scaledTextW();
+				int gap = (effectiveTextW > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
+				cellW = effectiveTextW + gap + boxSize;
+				if (cellW <= 0) {
+					cellW = 16;
+				}
+				cellH = Math.max(boxSize, raw.rawTextH());
+				if (cellH <= 0) {
+					cellH = 14;
+				}
+				textBlockH = raw.rawTextH();
+				iconOffsetY = boxSize > 0 ? (cellH - boxSize) / 2 : 0;
+				textOffsetY = raw.rawTextH() > 0 ? Math.max(0, (cellH - raw.rawTextH()) / 2) : 0;
+				textAreaWidth = effectiveTextW;
+				if (metricPos == ArmorMetricPosition.LEFT) {
+					textOffsetX = 0;
+					iconOffsetX = boxSize > 0 ? (effectiveTextW + gap) : 0;
+				} else {
+					iconOffsetX = 0;
+					textOffsetX = boxSize > 0 ? (boxSize + gap) : 0;
+				}
 			}
+
+			cells.add(new CellSpec(
+					raw.metric(),
+					cellW,
+					cellH,
+					raw.scaledTextW(),
+					raw.rawTextH(),
+					textBlockH,
+					iconOffsetX,
+					iconOffsetY,
+					textOffsetX,
+					textOffsetY,
+					textAreaWidth
+			));
 		}
 
-		int scaledTotalW = Math.max(1, Math.round(totalW * scale));
-		int scaledTotalH = Math.max(1, Math.round(totalH * scale));
-		HudRect originRect = resolveAnchorRect(
-				safeConfig.anchor,
-				safeConfig.offsetX,
-				safeConfig.offsetY,
-				scaledTotalW,
-				scaledTotalH,
-				screenWidth,
-				screenHeight
-		);
-
-		List<ArmorSlotPlacement> placements = new ArrayList<>(cells.size());
 		if (safeConfig.individualPositionsEnabled) {
+			int totalW = 0;
+			int totalH = 0;
+			boolean prevWasArmor = true;
+			for (int i = 0; i < cells.size(); i++) {
+				CellSpec cell = cells.get(i);
+				int stepGap = i > 0
+						? effectiveSpacing + (prevWasArmor && !cell.metric().kind().isArmorPiece() ? HAND_SEPARATOR_GAP : 0)
+						: 0;
+				prevWasArmor = cell.metric().kind().isArmorPiece();
+				if (vertical) {
+					totalW = Math.max(totalW, cell.w());
+					totalH += cell.h() + Math.max(0, stepGap);
+				} else {
+					totalW += cell.w() + Math.max(0, stepGap);
+					totalH = Math.max(totalH, cell.h());
+				}
+			}
+			int scaledTotalW = Math.max(1, Math.round(totalW * scale));
+			int scaledTotalH = Math.max(1, Math.round(totalH * scale));
+			HudRect originRect = resolveAnchorRect(
+					safeConfig.anchor,
+					safeConfig.offsetX,
+					safeConfig.offsetY,
+					scaledTotalW,
+					scaledTotalH,
+					screenWidth,
+					screenHeight
+			);
 			int baseOriginX = safeConfig.anchor == HudAnchor.CUSTOM
 					? ConfigValidator.clampInt(safeConfig.offsetX, 0, Math.max(0, screenWidth - 16))
 					: originRect.x();
@@ -217,8 +316,9 @@ public final class HudLayoutEngine {
 					? ConfigValidator.clampInt(safeConfig.offsetY, 0, Math.max(0, screenHeight - 16))
 					: originRect.y();
 
+			List<ArmorSlotPlacement> placements = new ArrayList<>(cells.size());
 			HudRect unionBounds = HudRect.EMPTY;
-			for (CellSize cell : cells) {
+			for (CellSpec cell : cells) {
 				PointOffset offset = safeConfig.individualOffsets != null
 						? safeConfig.individualOffsets.getOrDefault(cell.metric().kind(), new PointOffset())
 						: new PointOffset();
@@ -239,6 +339,12 @@ public final class HudLayoutEngine {
 						cell.h(),
 						boxSize,
 						cell.textBlockH(),
+						cell.iconOffsetX(),
+						cell.iconOffsetY(),
+						cell.textOffsetX(),
+						cell.textOffsetY(),
+						cell.textAreaWidth(),
+						metricPos,
 						slotRect
 				));
 				unionBounds = HudRect.union(unionBounds, slotRect);
@@ -246,45 +352,177 @@ public final class HudLayoutEngine {
 			return new ArmorLayoutResult(baseOriginX, baseOriginY, totalW, totalH, scale, unionBounds, placements);
 		}
 
-		int cursorX = 0;
-		int cursorY = 0;
-		prevWasArmorPiece = true;
-		for (int i = 0; i < cells.size(); i++) {
-			CellSize cell = cells.get(i);
-			if (i > 0) {
-				boolean isHand = !cell.metric().kind().isArmorPiece();
-				int handExtra = (prevWasArmorPiece && isHand) ? HAND_SEPARATOR_GAP : 0;
-				int stepGap = spacing + handExtra;
-				if (vertical) {
-					cursorY += stepGap;
+		int[] xs = new int[cells.size()];
+		int[] ys = new int[cells.size()];
+		boolean prevWasArmorPiece = true;
+
+		for (int i = 1; i < cells.size(); i++) {
+			CellSpec prev = cells.get(i - 1);
+			CellSpec curr = cells.get(i);
+			boolean isHand = !curr.metric().kind().isArmorPiece();
+			int handExtra = (prevWasArmorPiece && isHand) ? HAND_SEPARATOR_GAP : 0;
+			prevWasArmorPiece = curr.metric().kind().isArmorPiece();
+
+			if (!vertical) {
+				ys[i] = 0;
+				if (effectiveSpacing >= 0) {
+					xs[i] = xs[i - 1] + prev.w() + effectiveSpacing + handExtra;
+				} else if (verticalSide) {
+					int prevIconX = xs[i - 1] + prev.iconOffsetX();
+					int iconStep = boxSize > 0 ? Math.max(16, boxSize + effectiveSpacing) : 16;
+					int candidateByIcon = (prevIconX + iconStep + handExtra) - curr.iconOffsetX();
+
+					int candidateByText = Integer.MIN_VALUE;
+					if (prev.actualTextW() > 0 && curr.actualTextW() > 0) {
+						int prevTextRight = xs[i - 1] + (prev.w() + prev.actualTextW()) / 2;
+						int currTextLocalLeft = (curr.w() - curr.actualTextW()) / 2;
+						candidateByText = (prevTextRight + 1 + handExtra) - currTextLocalLeft;
+					}
+					xs[i] = Math.max(xs[i - 1] + handExtra, Math.max(candidateByIcon, candidateByText));
 				} else {
-					cursorX += stepGap;
+					// LEFT/RIGHT in horizontal row places text directly alongside icons on the same Y band
+					boolean eitherHasText = prev.actualTextW() > 0 || curr.actualTextW() > 0;
+					int stepX = eitherHasText
+							? prev.w() + handExtra
+							: (boxSize > 0 ? Math.max(16, boxSize + effectiveSpacing) : prev.w()) + handExtra;
+					xs[i] = xs[i - 1] + stepX;
+				}
+			} else {
+				xs[i] = 0;
+				if (effectiveSpacing >= 0) {
+					ys[i] = ys[i - 1] + prev.h() + effectiveSpacing + handExtra;
+				} else if (!verticalSide) {
+					int prevIconY = ys[i - 1] + prev.iconOffsetY();
+					int iconStep = boxSize > 0 ? Math.max(16, boxSize + effectiveSpacing) : 14;
+					int candidateByIcon = (prevIconY + iconStep + handExtra) - curr.iconOffsetY();
+
+					int candidateByText = Integer.MIN_VALUE;
+					if (prev.rawTextH() > 0 && curr.rawTextH() > 0) {
+						int prevTextBottom = ys[i - 1] + prev.textOffsetY() + prev.rawTextH();
+						candidateByText = (prevTextBottom + 1 + handExtra) - curr.textOffsetY();
+					}
+					ys[i] = Math.max(ys[i - 1] + handExtra, Math.max(candidateByIcon, candidateByText));
+				} else {
+					// ABOVE/BELOW in vertical column places text directly between vertical icons
+					boolean textBetween = (metricPos == ArmorMetricPosition.BELOW && prev.rawTextH() > 0)
+							|| (metricPos == ArmorMetricPosition.ABOVE && curr.rawTextH() > 0);
+					int stepY = textBetween
+							? prev.h() + handExtra
+							: (boxSize > 0 ? Math.max(16, boxSize + effectiveSpacing) : prev.h()) + handExtra;
+					ys[i] = ys[i - 1] + stepY;
 				}
 			}
-			prevWasArmorPiece = cell.metric().kind().isArmorPiece();
+		}
 
-			int sx = originRect.x() + Math.round(cursorX * scale);
-			int sy = originRect.y() + Math.round(cursorY * scale);
+		int minX = Integer.MAX_VALUE;
+		int minY = Integer.MAX_VALUE;
+		for (int i = 0; i < cells.size(); i++) {
+			minX = Math.min(minX, xs[i]);
+			minY = Math.min(minY, ys[i]);
+		}
+		int totalW = 0;
+		int totalH = 0;
+		for (int i = 0; i < cells.size(); i++) {
+			xs[i] -= minX;
+			ys[i] -= minY;
+			totalW = Math.max(totalW, xs[i] + cells.get(i).w());
+			totalH = Math.max(totalH, ys[i] + cells.get(i).h());
+		}
+
+		int scaledTotalW = Math.max(1, Math.round(totalW * scale));
+		int scaledTotalH = Math.max(1, Math.round(totalH * scale));
+		HudRect originRect = resolveAnchorRect(
+				safeConfig.anchor,
+				safeConfig.offsetX,
+				safeConfig.offsetY,
+				scaledTotalW,
+				scaledTotalH,
+				screenWidth,
+				screenHeight
+		);
+
+		List<ArmorSlotPlacement> placements = new ArrayList<>(cells.size());
+		for (int i = 0; i < cells.size(); i++) {
+			CellSpec cell = cells.get(i);
+			int sx = originRect.x() + Math.round(xs[i] * scale);
+			int sy = originRect.y() + Math.round(ys[i] * scale);
 			int sw = Math.max(1, Math.round(cell.w() * scale));
 			int sh = Math.max(1, Math.round(cell.h() * scale));
 			placements.add(new ArmorSlotPlacement(
 					cell.metric().kind(),
-					cursorX,
-					cursorY,
+					xs[i],
+					ys[i],
 					cell.w(),
 					cell.h(),
 					boxSize,
 					cell.textBlockH(),
+					cell.iconOffsetX(),
+					cell.iconOffsetY(),
+					cell.textOffsetX(),
+					cell.textOffsetY(),
+					cell.textAreaWidth(),
+					metricPos,
 					new HudRect(sx, sy, sw, sh)
 			));
-			if (vertical) {
-				cursorY += cell.h();
-			} else {
-				cursorX += cell.w();
-			}
 		}
 
 		return new ArmorLayoutResult(originRect.x(), originRect.y(), totalW, totalH, scale, originRect, placements);
+	}
+
+	public static List<HudRect> computeArmorOuterFrameRects(ArmorLayoutResult layout, boolean vertical) {
+		if (layout == null || layout.slots().isEmpty()) {
+			return List.of();
+		}
+		List<HudRect> frames = new ArrayList<>();
+		List<ArmorSlotPlacement> group = new ArrayList<>();
+		Boolean groupIsArmor = null;
+
+		for (ArmorSlotPlacement placement : layout.slots()) {
+			boolean isArmor = placement.kind().isArmorPiece();
+			if (groupIsArmor != null && groupIsArmor != isArmor) {
+				frames.add(computeOuterFrameForGroup(group, vertical));
+				group.clear();
+			}
+			groupIsArmor = isArmor;
+			group.add(placement);
+		}
+		if (!group.isEmpty()) {
+			frames.add(computeOuterFrameForGroup(group, vertical));
+		}
+		return frames;
+	}
+
+	private static HudRect computeOuterFrameForGroup(List<ArmorSlotPlacement> group, boolean vertical) {
+		HudRect union = HudRect.EMPTY;
+		boolean hasIcons = group.getFirst().slotBoxSize() > 0;
+		boolean hasInterleavedText = false;
+		if (hasIcons && group.size() > 1) {
+			ArmorSlotPlacement first = group.getFirst();
+			ArmorSlotPlacement second = group.get(1);
+			if (!vertical && !first.metricPosition().isVerticalSide() && first.textAreaWidth() > 0) {
+				hasInterleavedText = true;
+			}
+			if (vertical && first.metricPosition().isVerticalSide() && first.textBlockHeight() > 0) {
+				hasInterleavedText = true;
+			}
+			if (!hasInterleavedText) {
+				int maxGap = first.slotBoxSize() + ConfigValidator.MAX_SPACING + 2;
+				int dist = vertical
+						? Math.abs(second.unscaledIconY() - first.unscaledIconY())
+						: Math.abs(second.unscaledIconX() - first.unscaledIconX());
+				if (dist > maxGap) {
+					hasInterleavedText = true;
+				}
+			}
+		}
+
+		for (ArmorSlotPlacement p : group) {
+			HudRect part = (hasIcons && !hasInterleavedText)
+					? new HudRect(p.unscaledIconX(), p.unscaledIconY(), p.slotBoxSize(), p.slotBoxSize())
+					: new HudRect(p.unscaledX(), p.unscaledY(), p.unscaledWidth(), p.unscaledHeight());
+			union = HudRect.union(union, part);
+		}
+		return union;
 	}
 
 	public static Map<ArmorSlotKind, PointOffset> captureIndividualOffsetsFromAuto(
@@ -412,6 +650,80 @@ public final class HudLayoutEngine {
 		}
 
 		return new EffectsLayoutResult(originRect.x(), originRect.y(), totalW, totalH, scale, originRect, placements);
+	}
+
+	public static ResizeResult computeResizeFromCorner(
+			HudRect initialBounds,
+			int unscaledWidth,
+			int unscaledHeight,
+			ResizeCorner corner,
+			int pointerX,
+			int pointerY,
+			int screenWidth,
+			int screenHeight
+	) {
+		HudRect safeBounds = initialBounds != null && !initialBounds.isEmpty()
+				? initialBounds
+				: new HudRect(0, 0, Math.max(1, unscaledWidth), Math.max(1, unscaledHeight));
+		ResizeCorner safeCorner = corner != null ? corner : ResizeCorner.BOTTOM_RIGHT;
+		int uW = Math.max(1, unscaledWidth);
+		int uH = Math.max(1, unscaledHeight);
+
+		int anchorX;
+		int anchorY;
+		int desiredW;
+		int desiredH;
+		switch (safeCorner) {
+			case TOP_LEFT -> {
+				anchorX = safeBounds.right();
+				anchorY = safeBounds.bottom();
+				desiredW = anchorX - pointerX;
+				desiredH = anchorY - pointerY;
+			}
+			case TOP_RIGHT -> {
+				anchorX = safeBounds.x();
+				anchorY = safeBounds.bottom();
+				desiredW = pointerX - anchorX;
+				desiredH = anchorY - pointerY;
+			}
+			case BOTTOM_LEFT -> {
+				anchorX = safeBounds.right();
+				anchorY = safeBounds.y();
+				desiredW = anchorX - pointerX;
+				desiredH = pointerY - anchorY;
+			}
+			case BOTTOM_RIGHT -> {
+				anchorX = safeBounds.x();
+				anchorY = safeBounds.y();
+				desiredW = pointerX - anchorX;
+				desiredH = pointerY - anchorY;
+			}
+			default -> {
+				anchorX = safeBounds.x();
+				anchorY = safeBounds.y();
+				desiredW = pointerX - anchorX;
+				desiredH = pointerY - anchorY;
+			}
+		}
+
+		int clampedDesiredW = Math.max(8, desiredW);
+		int clampedDesiredH = Math.max(8, desiredH);
+		double numerator = (double) clampedDesiredW * uW + (double) clampedDesiredH * uH;
+		double denominator = (double) uW * uW + (double) uH * uH;
+		float projectedScale = (float) (numerator / Math.max(1.0, denominator));
+		float newScale = ConfigValidator.clampScale(projectedScale);
+
+		int newW = Math.max(1, Math.round(uW * newScale));
+		int newH = Math.max(1, Math.round(uH * newScale));
+		int rawX = (safeCorner == ResizeCorner.TOP_LEFT || safeCorner == ResizeCorner.BOTTOM_LEFT)
+				? anchorX - newW
+				: anchorX;
+		int rawY = (safeCorner == ResizeCorner.TOP_LEFT || safeCorner == ResizeCorner.TOP_RIGHT)
+				? anchorY - newH
+				: anchorY;
+
+		HudRect clamped = new HudRect(rawX, rawY, newW, newH).clampToScreen(screenWidth, screenHeight, 2);
+		return new ResizeResult(newScale, clamped.x(), clamped.y(), clamped);
 	}
 
 	public static SnapResult snapPosition(

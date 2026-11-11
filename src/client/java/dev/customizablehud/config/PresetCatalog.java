@@ -38,6 +38,8 @@ public final class PresetCatalog {
 				armor.anchor = HudAnchor.CENTER_LEFT;
 				armor.orientation = HudOrientation.VERTICAL;
 				armor.style = ArmorVisualStyle.BORDERLESS;
+				armor.borderStyle = ArmorBorderStyle.PER_SLOT;
+				armor.metricPosition = ArmorMetricPosition.RIGHT;
 				armor.slotSpacing = 1;
 				armor.scale = 0.90f;
 				armor.showIcon = true;
@@ -45,6 +47,7 @@ public final class PresetCatalog {
 				armor.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
 				armor.showMaxDurability = false;
 				armor.showItemName = false;
+				armor.showHandItemName = false;
 				armor.colorByDurability = true;
 				armor.lowDurabilityWarning = false;
 				armor.showMainHand = true;
@@ -75,6 +78,8 @@ public final class PresetCatalog {
 				armor.anchor = HudAnchor.HOTBAR_RIGHT;
 				armor.orientation = HudOrientation.HORIZONTAL;
 				armor.style = ArmorVisualStyle.INVENTORY_SLOT;
+				armor.borderStyle = ArmorBorderStyle.PER_SLOT;
+				armor.metricPosition = ArmorMetricPosition.ABOVE;
 				armor.slotSpacing = 1;
 				armor.scale = 1.15f;
 				armor.showIcon = true;
@@ -82,6 +87,7 @@ public final class PresetCatalog {
 				armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_ONLY;
 				armor.showMaxDurability = true;
 				armor.showItemName = true;
+				armor.showHandItemName = false;
 				armor.colorByDurability = true;
 				armor.lowDurabilityWarning = true;
 				armor.criticalThresholdPercent = 20;
@@ -97,7 +103,7 @@ public final class PresetCatalog {
 				effects.style = EffectsVisualStyle.CLEAN_CARD;
 				effects.rowSpacing = 3;
 				effects.scale = 1.10f;
-				effects.showEffectBackground = true;
+				effects.showEffectBackground = false;
 				effects.showEffectBorder = true;
 				effects.showIcon = true;
 				effects.showName = true;

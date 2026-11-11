@@ -119,15 +119,21 @@ public final class EffectsHudRenderer {
 		int padX = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 4;
 
 		graphics.enableScissor(boxX, boxY, boxX + boxW, boxY + boxH);
-		Matrix3x2fStack pose = graphics.pose();
-		pose.pushMatrix();
-		pose.translate(drawX, drawY);
-		pose.scale(fitScale, fitScale);
-		for (int i = 0; i < layout.rows().size() && i < rows.size(); i++) {
-			drawRow(graphics, font, previewConfig, style, rows.get(i), layout.rows().get(i), iconBox, padX, tps, alpha);
+		try {
+			Matrix3x2fStack pose = graphics.pose();
+			pose.pushMatrix();
+			try {
+				pose.translate(drawX, drawY);
+				pose.scale(fitScale, fitScale);
+				for (int i = 0; i < layout.rows().size() && i < rows.size(); i++) {
+					drawRow(graphics, font, previewConfig, style, rows.get(i), layout.rows().get(i), iconBox, padX, tps, alpha);
+				}
+			} finally {
+				pose.popMatrix();
+			}
+		} finally {
+			graphics.disableScissor();
 		}
-		pose.popMatrix();
-		graphics.disableScissor();
 	}
 
 	private record PreparedRow(
@@ -194,22 +200,25 @@ public final class EffectsHudRenderer {
 			return layout;
 		}
 
+		float safeAlpha = Math.max(0.0f, Math.min(1.0f, alpha));
 		Matrix3x2fStack pose = graphics.pose();
 		pose.pushMatrix();
-		pose.translate(layout.originX(), layout.originY());
-		pose.scale(layout.scale(), layout.scale());
+		try {
+			pose.translate(layout.originX(), layout.originY());
+			pose.scale(layout.scale(), layout.scale());
 
-		EffectsVisualStyle style = config.style != null ? config.style : EffectsVisualStyle.MINECRAFT_COMPACT;
-		int iconBox = config.showIcon ? (style == EffectsVisualStyle.MINIMAL_TEXT ? 14 : 20) : 0;
-		int padX = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 4;
+			EffectsVisualStyle style = config.style != null ? config.style : EffectsVisualStyle.MINECRAFT_COMPACT;
+			int iconBox = config.showIcon ? (style == EffectsVisualStyle.MINIMAL_TEXT ? 14 : 20) : 0;
+			int padX = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 4;
 
-		for (int i = 0; i < layout.rows().size() && i < rows.size(); i++) {
-			EffectRowPlacement placement = layout.rows().get(i);
-			PreparedRow row = rows.get(i);
-			drawRow(graphics, font, config, style, row, placement, iconBox, padX, tps, alpha);
+			for (int i = 0; i < layout.rows().size() && i < rows.size(); i++) {
+				EffectRowPlacement placement = layout.rows().get(i);
+				PreparedRow row = rows.get(i);
+				drawRow(graphics, font, config, style, row, placement, iconBox, padX, tps, safeAlpha);
+			}
+		} finally {
+			pose.popMatrix();
 		}
-
-		pose.popMatrix();
 		return layout;
 	}
 
@@ -257,8 +266,7 @@ public final class EffectsHudRenderer {
 					graphics.renderOutline(x, y, w, h, border);
 				}
 				if (drawBg || drawBorder) {
-					int accentRgb = EffectsColorResolver.resolveCustomRgb(snap.id(), config).orElse(snap.colorRgb());
-					int accent = ARGB.color(alpha, ARGB.opaque(accentRgb));
+					int accent = ARGB.multiplyAlpha(EffectsColorResolver.accentColorArgb(snap, config), alpha);
 					graphics.fill(x + 1, y + 1, x + 3, y + h - 1, accent);
 				}
 			}
@@ -335,7 +343,7 @@ public final class EffectsHudRenderer {
 				return;
 			}
 		}
-		int fill = ARGB.color(alpha, ARGB.opaque(snap.colorRgb()));
+		int fill = ARGB.color(alpha, ARGB.opaque(EffectsColorResolver.resolveNativeDisplayRgb(snap.colorRgb())));
 		int border = ARGB.color(alpha, 0xFFFFFFFF);
 		graphics.fill(x + 1, y + 1, x + size - 1, y + size - 1, fill);
 		graphics.renderOutline(x + 1, y + 1, size - 2, size - 2, border);

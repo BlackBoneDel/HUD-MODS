@@ -37,7 +37,7 @@ Lista de verificación funcional y visual dentro de **Minecraft Java Edition 1.2
 | QA-09 | Objetos sin durabilidad (ej. calabaza tallada / cabeza / bloque) no muestran barra ni texto de durabilidad ni alerta falsa | `NOT RUN` | |
 | QA-10 | Objetos con componente `minecraft:unbreakable` muestran `∞` y sin barra de daño | `NOT RUN` | |
 | QA-11 | Activación independiente de **Mano principal** y **Mano secundaria** (incluyendo stacks > 1) | `NOT RUN` | |
-| QA-12 | Modos de métrica única (`Solo %` por defecto, `Solo puntos`, con máximo `153/203`, u `Oculto`), nombre del objeto, color por rango y parpadeo opcional | `NOT RUN` | |
+| QA-12 | Modos de métrica única (`Solo puntos` por defecto, `Solo %`, con máximo `153/203`, u `Oculto`), nombre del objeto, color por rango y parpadeo opcional | `NOT RUN` | |
 | QA-13 | Estilos visuales (`Hotbar vanilla`, `Ranura inventario`, `Minimalista`, `Sin bordes`), orientación horizontal/vertical y reordenamiento de piezas | `NOT RUN` | |
 
 ## 3. HUD de Efectos
@@ -77,10 +77,10 @@ Lista de verificación funcional y visual dentro de **Minecraft Java Edition 1.2
 | QA-34 | Abrir **Ajustes del HUD de efectos** con efectos activos y sin efectos/en menú principal: la vista previa refleja los efectos reales o una lista de ejemplo sin filtrar ejemplos al HUD real | `NOT RUN` | |
 | QA-35 | Probar las 4 combinaciones independientes de **Fondo del efecto** (`ON/OFF`) y **Borde del efecto** (`ON/OFF`) y verificar actualización inmediata en vista previa y HUD real | `NOT RUN` | |
 | QA-36 | Abrir el Editor Visual en resoluciones estándar y reducidas (`GUI Scale` 1, 2, 3, 4): ningún botón ni `Guardar diseño` / `Save Layout` queda cortado ni fuera de la pantalla | `NOT RUN` | |
-| QA-37 | Verificar en Armor HUD que solo aparece una métrica por vez (`Solo %` o `Solo puntos`, nunca puntos + porcentaje simultáneamente) y `POINTS_AND_PERCENT` legado migra a `Solo %` | `NOT RUN` | |
-| QA-38 | Verificar en Armor HUD que el porcentaje o los puntos aparecen centrados horizontalmente encima de cada icono correspondiente | `NOT RUN` | |
-| QA-39 | Verificar que `100%`, valores grandes en puntos (ej. `342/407`) y **Mostrar nombre** activo con ítems renombrados en yunque no se solapan entre ranuras contiguas | `NOT RUN` | |
-| QA-40 | Verificar que las piezas de armadura usan por defecto separación compacta similar a los slots de la hotbar (`slotSpacing = 0`) y manos ocultas hasta activarlas | `NOT RUN` | |
+| QA-37 | Verificar en Armor HUD que solo aparece una métrica por vez (`Solo puntos` por defecto o `Solo %`, nunca puntos + porcentaje simultáneamente) y `POINTS_AND_PERCENT` / `PERCENT_ONLY` de esquemas previos migra según la regla v3 a `Solo puntos` | `NOT RUN` | |
+| QA-38 | Verificar en Armor HUD que el porcentaje o los puntos aparecen centrados respecto al icono en Arriba/Abajo o alineados limpiamente en Izquierda/Derecha | `NOT RUN` | |
+| QA-39 | Verificar que `100%`, valores grandes en puntos (ej. `342/407`) y **Nombres armadura** activo con ítems renombrados en yunque no se solapan entre ranuras contiguas | `NOT RUN` | |
+| QA-40 | Verificar que las piezas de armadura usan por defecto separación compacta similar a los slots de la hotbar (`slotSpacing = 0`) y manos (y nombres en manos) ocultos hasta activarlos | `NOT RUN` | |
 | QA-41 | Probar umbrales por defecto en piezas reales dañadas: `>60%` (ej. `61%` y `60.4%`) verde, `<=60% y >20%` (ej. `60%` y `20.4%`) amarillo, `<=20%` (ej. `20%` y `0%`) rojo tanto en texto como en barra | `NOT RUN` | |
 | QA-42 | Editar umbrales de Aviso/Crítico y colores Sano/Aviso/Crítico en **Ajustes del HUD de armadura** y verificar coherencia inmediata entre vista previa, HUD real, texto y barra | `NOT RUN` | |
 | QA-43 | Equipar objeto sin durabilidad (calabaza tallada), dejar ranuras vacías y equipar objeto irrompible (`∞`): nunca se reporta `100%` falso | `NOT RUN` | |
@@ -90,3 +90,21 @@ Lista de verificación funcional y visual dentro de **Minecraft Java Edition 1.2
 | QA-47 | Añadir una entrada de efecto de otro mod en `config/customizablehud.json`, editar otras opciones desde el juego, guardar y confirmar que la entrada del otro mod sigue intacta en el JSON | `NOT RUN` | |
 | QA-48 | Corromper `config/customizablehud.json` o provocar fallo de escritura (archivo de solo lectura): confirmar respaldo `.corrupt-*.bak` + aviso único al recuperar y badge real `Error al guardar` (`Save failed`) sin falsos positivos | `NOT RUN` | |
 | QA-49 | Activar un resource pack que sobrescriba claves `assets/customizablehud/lang/en_us.json` o `es_es.json` (o nombres vanilla) y verificar carga correcta tras recargar recursos (`F3+T`) y fallback seguro ante traducciones ausentes | `NOT RUN` | |
+
+## 6. Ajustes y correcciones Alpha 2.1
+
+| ID | Prueba | Estado | Notas |
+| --- | --- | --- | --- |
+| QA-50 | Arranque limpio sin `config/customizablehud.json`: Armor HUD inicia con **Solo puntos** (`POINTS_ONLY`, sin máximo ni nombres, parpadeo `OFF`) y Effects HUD inicia con **Fondo del efecto** desactivado (`OFF`) | `NOT RUN` | |
+| QA-51 | Migración única desde un `config/customizablehud.json` de Alpha 2 (`schemaVersion: 2`, `PERCENT_ONLY`, `showEffectBackground: true`): actualiza a `schemaVersion: 3` con `POINTS_ONLY` y `showEffectBackground: false` manteniendo idioma, posición, escala y colores por efecto | `NOT RUN` | |
+| QA-52 | Activar **Parpadeo crítico** (`Low Warning Blink`) con una pieza <=20% y otras sanas: solo parpadea suavemente el borde/indicador de esa pieza crítica sin ocultar nunca el módulo, el icono ni la métrica; al desactivar se detiene al instante | `NOT RUN` | |
+| QA-53 | Ajustar **Espaciado** en Armadura desde `-4 px` hasta `16 px`: a `-4 px` los iconos `16x16` se tocan limpiamente sin recortarse ni solapar métricas o nombres largos | `NOT RUN` | |
+| QA-54 | Cambiar **Estilo de borde** en Armadura entre `Por casilla` (`PER_SLOT`) y `Marco exterior` (`OUTER_FRAME`): en `Marco exterior` todas las piezas visibles forman una sola barra continua sin divisores internos en horizontal y vertical, con distintos estilos, vacíos y manos | `NOT RUN` | |
+| QA-55 | Cambiar **Lado métrica** (`Arriba`, `Abajo`, `Izquierda`, `Derecha`) en Armadura: verificar centrado arriba/abajo, alineación limpia izquierda/derecha y actualización en vivo en vista previa y HUD | `NOT RUN` | |
+| QA-56 | Activar **Mano principal** / **Mano secundaria** y probar **Nombres armadura** vs **Nombres en manos** (incluyendo ítems renombrados en yunque con nombres largos): manos inician sin nombre por defecto y truncan limpiamente sin solaparse | `NOT RUN` | |
+| QA-57 | En Effects HUD sin personalizaciones: aplicar múltiples efectos (Velocidad, Fuerza, Regeneración, Veneno, Ceguera, etc.) y comprobar que cada uno usa automáticamente su color nativo de Minecraft sin rosa global | `NOT RUN` | |
+| QA-58 | Abrir **Colores por efecto**: comprobar que cada efecto muestra su muestra de color automático real (o respaldo legible si no define tinta), editar cualquier efecto vanilla o de mod, desactivar sin borrar hex y restablecer a automático | `NOT RUN` | |
+| QA-59 | En Effects HUD: comprobar que `showEffectBackground = false` elimina toda caja/tarjeta/relleno en `Minecraft compacto`, `Tarjeta limpia` y `Texto minimalista` manteniendo intacto el HUD vanilla y el toggle independiente de **Borde del efecto** | `NOT RUN` | |
+| QA-60 | En **Editor visual del HUD**: mover Effects HUD arrastrando su área directamente y redimensionarlo proporcionalmente desde los tiradores de las 4 esquinas (incluso con fondo y borde en `OFF`), comprobando anclaje opuesto y sincronía con el slider de `Escala` | `NOT RUN` | |
+| QA-61 | Verificar prioridad de hit-test entre los tiradores de esquina y el arrastre para mover, límites de escala (`0.50x`–`2.50x`), límites de pantalla y comportamiento bajo distintas resoluciones y `GUI Scale` | `NOT RUN` | |
+| QA-62 | Verificar guardado tras redimensionar/mover Effects HUD, cambiar posición/borde/espaciado de Armadura y reiniciar el cliente | `NOT RUN` | |

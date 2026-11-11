@@ -12,7 +12,7 @@ public final class EffectsConfig {
 	public HudOrientation orientation = HudOrientation.VERTICAL;
 	public EffectsVisualStyle style = EffectsVisualStyle.MINECRAFT_COMPACT;
 	public int rowSpacing = 2;
-	public boolean showEffectBackground = true;
+	public boolean showEffectBackground = false;
 	public boolean showEffectBorder = true;
 	public boolean showIcon = true;
 	public boolean showName = true;

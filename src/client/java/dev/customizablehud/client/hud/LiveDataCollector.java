@@ -160,7 +160,7 @@ public final class LiveDataCollector {
 				false,
 				true,
 				true,
-				0xE879F9
+				0
 		);
 		return new EffectRenderEntry(fallback, null);
 	}

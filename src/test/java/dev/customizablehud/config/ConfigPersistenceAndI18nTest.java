@@ -18,19 +18,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigPersistenceAndI18nTest {
 	@Test
-	void migratesSchemaV1AndPointsAndPercentPreservingValidCustomAndModdedData(@TempDir Path tempDir) throws Exception {
+	void migratesSchemaV1AndV2DefaultsOncePreservingCustomizationsAndModdedData(@TempDir Path tempDir) throws Exception {
 		Path cfgFile = tempDir.resolve("customizablehud.json");
-		String v1Json = """
+		String v2Alpha2Json = """
 				{
-				  "schemaVersion": 1,
+				  "schemaVersion": 2,
+				  "language": "SPANISH",
 				  "armor": {
 				    "enabled": false,
-				    "durabilityDisplayMode": "POINTS_AND_PERCENT",
-				    "lowDurabilityThresholdPercent": 15,
+				    "durabilityDisplayMode": "PERCENT_ONLY",
+				    "slotSpacing": -2,
 				    "scale": 1.35
 				  },
 				  "effects": {
 				    "style": "CLEAN_CARD",
+				    "showEffectBackground": true,
+				    "showEffectBorder": true,
 				    "customEffectColors": {
 				      "othermod:mana_regen": {
 				        "enabled": true,
@@ -44,20 +47,24 @@ class ConfigPersistenceAndI18nTest {
 				  }
 				}
 				""";
-		Files.writeString(cfgFile, v1Json, StandardCharsets.UTF_8);
+		Files.writeString(cfgFile, v2Alpha2Json, StandardCharsets.UTF_8);
 
 		ConfigManager manager = new ConfigManager(cfgFile);
 		HudConfig migrated = manager.load();
 
 		assertEquals(HudConfig.CURRENT_SCHEMA_VERSION, migrated.schemaVersion);
-		assertEquals(ModLanguage.ENGLISH, migrated.language);
+		assertEquals(ModLanguage.SPANISH, migrated.language);
 		assertFalse(migrated.armor.enabled);
-		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, migrated.armor.durabilityDisplayMode);
+		assertEquals(DurabilityDisplayMode.POINTS_ONLY, migrated.armor.durabilityDisplayMode);
+		assertEquals(ArmorBorderStyle.PER_SLOT, migrated.armor.borderStyle);
+		assertEquals(ArmorMetricPosition.ABOVE, migrated.armor.metricPosition);
+		assertFalse(migrated.armor.showHandItemName);
+		assertEquals(-2, migrated.armor.slotSpacing);
 		assertEquals(60, migrated.armor.warningThresholdPercent);
 		assertEquals(20, migrated.armor.criticalThresholdPercent);
 		assertEquals(1.35f, migrated.armor.scale);
 		assertEquals(EffectsVisualStyle.CLEAN_CARD, migrated.effects.style);
-		assertTrue(migrated.effects.showEffectBackground);
+		assertFalse(migrated.effects.showEffectBackground);
 		assertTrue(migrated.effects.showEffectBorder);
 
 		// Unknown modded effect ID preserved and hex normalized; malformed ID dropped
@@ -66,9 +73,34 @@ class ConfigPersistenceAndI18nTest {
 		assertNotNull(moddedOverride);
 		assertTrue(moddedOverride.enabled);
 		assertEquals("#FF66B2", moddedOverride.colorHex);
-
-		// Migrated file was written back immediately
 		assertEquals(ConfigManager.SaveStatus.SAVED, manager.getSaveStatus());
+
+		// After schema v3 migration, subsequent manual choices (PERCENT_ONLY, showEffectBackground=true) persist untouched
+		HudConfig userEditedV3 = migrated.copy();
+		userEditedV3.armor.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
+		userEditedV3.effects.showEffectBackground = true;
+		assertTrue(manager.applyAndSaveNow(userEditedV3));
+
+		HudConfig reloadedV3 = new ConfigManager(cfgFile).load();
+		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, reloadedV3.armor.durabilityDisplayMode);
+		assertTrue(reloadedV3.effects.showEffectBackground);
+
+		// Legacy schema v1 with explicit NONE durability keeps NONE and migrates legacy low threshold
+		Path v1File = tempDir.resolve("legacy-v1.json");
+		String v1Json = """
+				{
+				  "schemaVersion": 1,
+				  "armor": {
+				    "durabilityDisplayMode": "NONE",
+				    "lowDurabilityThresholdPercent": 12
+				  }
+				}
+				""";
+		Files.writeString(v1File, v1Json, StandardCharsets.UTF_8);
+		HudConfig migratedV1 = new ConfigManager(v1File).load();
+		assertEquals(DurabilityDisplayMode.NONE, migratedV1.armor.durabilityDisplayMode);
+		assertEquals(12, migratedV1.armor.criticalThresholdPercent);
+		assertFalse(migratedV1.effects.showEffectBackground);
 	}
 
 	@Test
@@ -106,7 +138,7 @@ class ConfigPersistenceAndI18nTest {
 
 		// Schedule another debounced change and advance past debounce -> writes atomically on tickAutoSave
 		HudConfig edited2 = edited.copy();
-		edited2.effects.showEffectBackground = false;
+		edited2.effects.showEffectBackground = true;
 		manager.applyAndScheduleSave(edited2);
 		assertEquals(ConfigManager.SaveStatus.UNSAVED, manager.getSaveStatus());
 		clock.addAndGet(500L);
@@ -117,7 +149,7 @@ class ConfigPersistenceAndI18nTest {
 		HudConfig afterDebounce = new ConfigManager(cfgFile).load();
 		assertEquals(ModLanguage.SPANISH, afterDebounce.language);
 		assertTrue(afterDebounce.armor.showMainHand);
-		assertFalse(afterDebounce.effects.showEffectBackground);
+		assertTrue(afterDebounce.effects.showEffectBackground);
 
 		// Corrupt JSON recovery creates backup and raises one-shot notice
 		Files.writeString(cfgFile, "{ corrupt json [", StandardCharsets.UTF_8);

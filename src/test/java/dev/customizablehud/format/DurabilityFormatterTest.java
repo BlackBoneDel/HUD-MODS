@@ -11,11 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DurabilityFormatterTest {
 	@Test
-	void neverFormatsPointsAndPercentSimultaneously() {
+	void defaultsToPointsOnlyWithoutMaxAndNeverCombinesPointsAndPercent() {
 		assertEquals(3, DurabilityDisplayMode.values().length);
 
 		ArmorConfig config = new ArmorConfig();
-		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, config.durabilityDisplayMode);
+		assertEquals(DurabilityDisplayMode.POINTS_ONLY, config.durabilityDisplayMode);
+		assertFalse(config.showMaxDurability);
+		assertFalse(config.showItemName);
+		assertFalse(config.showHandItemName);
+		assertFalse(config.lowDurabilityWarning);
 
 		ArmorSlotSnapshot chest = new ArmorSlotSnapshot(
 				ArmorSlotKind.CHESTPLATE, true, "Diamond Chestplate", true, false, 203, 50, 1, true, 0.75f
@@ -23,13 +27,13 @@ class DurabilityFormatterTest {
 
 		assertEquals(153, chest.remaining());
 		assertEquals(75, chest.remainingPercent());
-		assertEquals("75%", DurabilityFormatter.format(chest, config));
-
-		config.durabilityDisplayMode = DurabilityDisplayMode.POINTS_ONLY;
 		assertEquals("153", DurabilityFormatter.format(chest, config));
 
 		config.showMaxDurability = true;
 		assertEquals("153/203", DurabilityFormatter.format(chest, config));
+
+		config.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
+		assertEquals("75%", DurabilityFormatter.format(chest, config));
 
 		config.durabilityDisplayMode = DurabilityDisplayMode.NONE;
 		assertEquals("", DurabilityFormatter.format(chest, config));
@@ -91,7 +95,6 @@ class DurabilityFormatterTest {
 		config.criticalThresholdPercent = 20;
 		config.lowDurabilityWarning = false;
 
-		// 61% -> Healthy
 		ArmorSlotSnapshot at61 = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 39, 1, true, 0.61f
 		);
@@ -99,7 +102,7 @@ class DurabilityFormatterTest {
 		assertEquals(0xFF6EEB83, DurabilityFormatter.textColorArgb(at61, config, 0L));
 		assertEquals(0xFF6EEB83, DurabilityFormatter.barColorArgb(at61, config));
 
-		// 302/500 = 60.4% (rounds to 60% for display, but unrounded is > 60%) -> MUST stay Healthy!
+		// 302/500 = 60.4% -> stays Healthy
 		ArmorSlotSnapshot at60Point4 = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Helmet", true, false, 500, 198, 1, true, 0.604f
 		);
@@ -114,7 +117,7 @@ class DurabilityFormatterTest {
 		assertEquals(0xFFFFE066, DurabilityFormatter.textColorArgb(at60, config, 0L));
 		assertEquals(0xFFFFE066, DurabilityFormatter.barColorArgb(at60, config));
 
-		// 102/500 = 20.4% (rounds to 20% for display, but unrounded is > 20%) -> MUST stay Warning!
+		// 102/500 = 20.4% -> stays Warning
 		ArmorSlotSnapshot at20Point4 = new ArmorSlotSnapshot(
 				ArmorSlotKind.CHESTPLATE, true, "Chest", true, false, 500, 398, 1, true, 0.204f
 		);
@@ -139,7 +142,7 @@ class DurabilityFormatterTest {
 	}
 
 	@Test
-	void supportsCustomThresholdsCustomColorsAndOptionalBlink() {
+	void computesBoundedNonHidingWarningBlinkOnlyForCriticalSlotsAndHandlesCorruptTimes() {
 		ArmorConfig config = new ArmorConfig();
 		config.colorByDurability = true;
 		config.warningThresholdPercent = 75;
@@ -152,15 +155,71 @@ class DurabilityFormatterTest {
 		ArmorSlotSnapshot warningItem = new ArmorSlotSnapshot(
 				ArmorSlotKind.LEGGINGS, true, "Leggings", true, false, 100, 30, 1, true, 0.70f
 		);
-		assertEquals(DurabilityFormatter.DurabilityLevel.WARNING, DurabilityFormatter.classifyLevel(warningItem, config));
+		assertFalse(DurabilityFormatter.computeWarningBlink(warningItem, config, 0L).active());
 		assertEquals(0xFFFFA500, DurabilityFormatter.textColorArgb(warningItem, config, 0L));
 		assertEquals(0xFFFFA500, DurabilityFormatter.barColorArgb(warningItem, config));
 
 		ArmorSlotSnapshot criticalItem = new ArmorSlotSnapshot(
 				ArmorSlotKind.BOOTS, true, "Boots", true, false, 100, 80, 1, true, 0.20f
 		);
+		// Text color remains solid & legible while only the warning indicator blinks with bounded alpha
 		assertEquals(0xFFFF00AA, DurabilityFormatter.barColorArgb(criticalItem, config));
 		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(criticalItem, config, 0L));
-		assertEquals(0xFFFFB84D, DurabilityFormatter.textColorArgb(criticalItem, config, 350L));
+		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(criticalItem, config, 350L));
+
+		DurabilityFormatter.WarningBlinkState phaseHigh = DurabilityFormatter.computeWarningBlink(criticalItem, config, 0L);
+		DurabilityFormatter.WarningBlinkState phaseLow = DurabilityFormatter.computeWarningBlink(criticalItem, config, 350L);
+		assertTrue(phaseHigh.active());
+		assertTrue(phaseHigh.highPhase());
+		assertTrue(phaseLow.active());
+		assertFalse(phaseLow.highPhase());
+		assertTrue(phaseHigh.indicatorAlpha() >= DurabilityFormatter.BLINK_MIN_ALPHA);
+		assertTrue(phaseLow.indicatorAlpha() >= DurabilityFormatter.BLINK_MIN_ALPHA);
+		assertTrue(phaseLow.indicatorAlpha() <= DurabilityFormatter.BLINK_MAX_ALPHA);
+
+		// Negative or extreme Long.MIN_VALUE timestamps never crash or drop alpha to zero
+		DurabilityFormatter.WarningBlinkState minTime = DurabilityFormatter.computeWarningBlink(criticalItem, config, Long.MIN_VALUE);
+		assertTrue(minTime.active());
+		assertTrue(minTime.indicatorAlpha() >= DurabilityFormatter.BLINK_MIN_ALPHA);
+
+		// Empty / non-damageable / unbreakable slots never blink
+		assertFalse(DurabilityFormatter.computeWarningBlink(ArmorSlotSnapshot.empty(ArmorSlotKind.HELMET), config, 0L).active());
+		assertFalse(DurabilityFormatter.computeWarningBlink(
+				new ArmorSlotSnapshot(ArmorSlotKind.HELMET, true, "Pumpkin", false, false, 0, 0, 1, false, 0.0f),
+				config,
+				0L
+		).active());
+
+		// Disabling stops blink immediately
+		config.lowDurabilityWarning = false;
+		assertFalse(DurabilityFormatter.computeWarningBlink(criticalItem, config, 0L).active());
+	}
+
+	@Test
+	void separatesArmorAndHandNamesAndTruncatesLongCustomNamesCleanly() {
+		ArmorConfig config = new ArmorConfig();
+		assertFalse(config.showItemName);
+		assertFalse(config.showHandItemName);
+
+		ArmorSlotSnapshot helmet = new ArmorSlotSnapshot(
+				ArmorSlotKind.HELMET, true, "Netherite Helmet of Invincibility", true, false, 407, 10, 1, true, 0.97f
+		);
+		ArmorSlotSnapshot sword = new ArmorSlotSnapshot(
+				ArmorSlotKind.MAIN_HAND, true, "Excalibur Diamond Blade +10", true, false, 1561, 100, 1, true, 0.93f
+		);
+
+		assertEquals("", DurabilityFormatter.formatItemName(helmet, config));
+		assertEquals("", DurabilityFormatter.formatItemName(sword, config));
+
+		config.showItemName = true;
+		String armorName = DurabilityFormatter.formatItemName(helmet, config);
+		assertTrue(armorName.endsWith("…"));
+		assertTrue(armorName.length() <= DurabilityFormatter.MAX_ITEM_NAME_CHARS);
+		assertEquals("", DurabilityFormatter.formatItemName(sword, config));
+
+		config.showHandItemName = true;
+		String handName = DurabilityFormatter.formatItemName(sword, config);
+		assertTrue(handName.endsWith("…"));
+		assertTrue(handName.length() <= DurabilityFormatter.MAX_ITEM_NAME_CHARS);
 	}
 }

@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 public final class ConfigValidator {
 	public static final float MIN_SCALE = 0.50f;
 	public static final float MAX_SCALE = 2.50f;
+	public static final int MIN_ARMOR_SPACING = -4;
 	public static final int MIN_SPACING = 0;
 	public static final int MAX_SPACING = 16;
 	public static final int MIN_OFFSET = -4000;
@@ -107,8 +108,16 @@ public final class ConfigValidator {
 			armor.style = ArmorVisualStyle.VANILLA_HOTBAR;
 			modified = true;
 		}
+		if (armor.borderStyle == null) {
+			armor.borderStyle = ArmorBorderStyle.PER_SLOT;
+			modified = true;
+		}
+		if (armor.metricPosition == null) {
+			armor.metricPosition = ArmorMetricPosition.ABOVE;
+			modified = true;
+		}
 		if (armor.durabilityDisplayMode == null) {
-			armor.durabilityDisplayMode = DurabilityDisplayMode.PERCENT_ONLY;
+			armor.durabilityDisplayMode = DurabilityDisplayMode.POINTS_ONLY;
 			modified = true;
 		}
 
@@ -118,7 +127,7 @@ public final class ConfigValidator {
 			modified = true;
 		}
 
-		int clampedSpacing = clampInt(armor.slotSpacing, MIN_SPACING, MAX_SPACING);
+		int clampedSpacing = clampInt(armor.slotSpacing, MIN_ARMOR_SPACING, MAX_SPACING);
 		if (clampedSpacing != armor.slotSpacing) {
 			armor.slotSpacing = clampedSpacing;
 			modified = true;

@@ -3,10 +3,10 @@ package dev.customizablehud.client.screen;
 import dev.customizablehud.client.hud.EffectsHudRenderer;
 import dev.customizablehud.client.i18n.ModI18n;
 import dev.customizablehud.config.ColorHexUtils;
-import dev.customizablehud.config.ConfigValidator;
 import dev.customizablehud.config.EffectColorOverride;
 import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.HudConfig;
+import dev.customizablehud.format.EffectsColorResolver;
 import dev.customizablehud.format.ModTranslations;
 import dev.customizablehud.layout.HudRect;
 import java.util.ArrayList;
@@ -39,7 +39,18 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 	private static final int FOOTER_HEIGHT = 34;
 	private static final int LIST_ROW_HEIGHT = 24;
 
-	private record EffectEntry(String id, String displayName, Holder<MobEffect> holder, int fallbackRgb, boolean registered) {
+	private record EffectEntry(
+			String id,
+			String displayName,
+			Holder<MobEffect> holder,
+			int rawNativeRgb,
+			int autoDisplayRgb,
+			boolean hasNativeColor,
+			boolean registered
+	) {
+		String autoHex() {
+			return String.format(Locale.ROOT, "#%06X", autoDisplayRgb & 0x00FFFFFF);
+		}
 	}
 
 	private final List<EffectEntry> allEntries = new ArrayList<>();
@@ -74,14 +85,25 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 			seenIds.add(id);
 			MobEffect effect = holder.value();
 			String name = ModI18n.translateExternal(activeLang(), effect.getDescriptionId(), effect.getDisplayName(), id);
-			allEntries.add(new EffectEntry(id, name, holder, effect.getColor(), true));
+			int rawColor = effect.getColor() & 0x00FFFFFF;
+			boolean hasNative = EffectsColorResolver.hasNativeColor(rawColor);
+			int autoRgb = EffectsColorResolver.resolveNativeDisplayRgb(rawColor);
+			allEntries.add(new EffectEntry(id, name, holder, rawColor, autoRgb, hasNative, true));
 		});
 
 		if (workingConfig.effects != null && workingConfig.effects.customEffectColors != null) {
 			for (String savedId : workingConfig.effects.customEffectColors.keySet()) {
 				if (savedId != null && !seenIds.contains(savedId)) {
 					seenIds.add(savedId);
-					allEntries.add(new EffectEntry(savedId, ModTranslations.humanizeIdentifier(savedId), null, 0xE879F9, false));
+					allEntries.add(new EffectEntry(
+							savedId,
+							ModTranslations.humanizeIdentifier(savedId),
+							null,
+							0,
+							EffectsColorResolver.UNREADABLE_FALLBACK_RGB,
+							false,
+							false
+					));
 				}
 			}
 		}
@@ -271,6 +293,11 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		return workingConfig.effects.customEffectColors.get(selectedEffectId);
 	}
 
+	private String defaultHexForSelected() {
+		EffectEntry sel = selectedEntry();
+		return sel != null ? sel.autoHex() : "#E6EDF3";
+	}
+
 	private void toggleSelectedOverride() {
 		if (selectedEffectId == null) {
 			return;
@@ -279,7 +306,7 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		EffectColorOverride existing = effects.customEffectColors.get(selectedEffectId);
 		if (existing == null) {
 			String initialHex = ColorHexUtils.normalizeHex(hexEditBox != null ? hexEditBox.getValue() : null)
-					.orElse("#FF66B2");
+					.orElse(defaultHexForSelected());
 			effects.customEffectColors.put(selectedEffectId, new EffectColorOverride(true, initialHex));
 		} else {
 			existing.enabled = !existing.enabled;
@@ -338,13 +365,19 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		if (toggleOverrideBtn == null) {
 			return;
 		}
+		EffectEntry sel = selectedEntry();
 		EffectColorOverride ov = currentOverride();
 		boolean hasOverride = ov != null;
 		boolean enabled = ov != null && ov.enabled;
 
 		Component toggleLabel;
 		if (!hasOverride) {
-			toggleLabel = t("customizablehud.effect_colors.toggle_auto");
+			String autoHex = sel != null ? sel.autoHex() : "#E6EDF3";
+			boolean nativeTint = sel != null && sel.hasNativeColor();
+			toggleLabel = t(
+					nativeTint ? "customizablehud.effect_colors.toggle_auto_native" : "customizablehud.effect_colors.toggle_auto_fallback",
+					autoHex
+			);
 		} else if (enabled) {
 			toggleLabel = t("customizablehud.effect_colors.toggle_on", ov.colorHex);
 		} else {
@@ -358,7 +391,7 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		)));
 
 		if (hexEditBox != null) {
-			String nextVal = ov != null ? ov.colorHex : "#FF66B2";
+			String nextVal = ov != null ? ov.colorHex : defaultHexForSelected();
 			if (!hexEditBox.isFocused() && !nextVal.equals(hexEditBox.getValue())) {
 				suppressHexResponder = true;
 				hexEditBox.setValue(nextVal);
@@ -407,12 +440,20 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		EffectEntry sel = selectedEntry();
 		if (sel != null && toggleOverrideBtn != null) {
 			int infoY = toggleOverrideBtn.getY() - 13;
+			int sx = toggleOverrideBtn.getX();
+			EffectColorOverride ov = currentOverride();
+			int activeRgb = (ov != null && ov.enabled)
+					? ColorHexUtils.parseRgb(ov.colorHex).orElse(sel.autoDisplayRgb())
+					: sel.autoDisplayRgb();
+			graphics.fill(sx, infoY, sx + 9, infoY + 9, 0xFF000000 | activeRgb);
+			graphics.renderOutline(sx, infoY, 9, 9, (ov != null && ov.enabled) ? 0xFFFFFFFF : 0xFF94A3B8);
+
 			String infoText = sel.displayName() + " (" + sel.id() + ")";
-			int maxW = Math.max(60, toggleOverrideBtn.getWidth());
+			int maxW = Math.max(40, toggleOverrideBtn.getWidth() - 14);
 			if (this.font.width(infoText) > maxW) {
 				infoText = this.font.plainSubstrByWidth(infoText, maxW - 8) + "...";
 			}
-			graphics.drawString(this.font, infoText, toggleOverrideBtn.getX(), infoY, 0xFFE2E8F0, false);
+			graphics.drawString(this.font, infoText, sx + 13, infoY + 1, 0xFFE2E8F0, false);
 		}
 
 		if (hexEditBox != null && hexInputInvalid) {
@@ -439,60 +480,67 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 		}
 
 		graphics.enableScissor(listRect.x() + 1, listRect.y() + 1, listRect.right() - 1, listRect.bottom() - 1);
-		for (int i = 0; i < filteredEntries.size(); i++) {
-			EffectEntry entry = filteredEntries.get(i);
-			int rowY = listRect.y() + 2 + i * LIST_ROW_HEIGHT - listScrollOffset;
-			int rowBottom = rowY + LIST_ROW_HEIGHT - 2;
-			if (rowBottom < listRect.y() || rowY > listRect.bottom()) {
-				continue;
-			}
-			int rowW = listRect.width() - (maxListScroll() > 0 ? 10 : 4);
-			int rowX = listRect.x() + 2;
-			boolean selected = entry.id().equals(selectedEffectId);
-			boolean hovered = mouseX >= rowX && mouseX <= rowX + rowW && mouseY >= rowY && mouseY <= rowBottom && listRect.contains(mouseX, mouseY);
+		try {
+			for (int i = 0; i < filteredEntries.size(); i++) {
+				EffectEntry entry = filteredEntries.get(i);
+				int rowY = listRect.y() + 2 + i * LIST_ROW_HEIGHT - listScrollOffset;
+				int rowBottom = rowY + LIST_ROW_HEIGHT - 2;
+				if (rowBottom < listRect.y() || rowY > listRect.bottom()) {
+					continue;
+				}
+				int rowW = listRect.width() - (maxListScroll() > 0 ? 10 : 4);
+				int rowX = listRect.x() + 2;
+				boolean selected = entry.id().equals(selectedEffectId);
+				boolean hovered = mouseX >= rowX && mouseX <= rowX + rowW && mouseY >= rowY && mouseY <= rowBottom && listRect.contains(mouseX, mouseY);
 
-			int rowBg = selected ? 0xCC1E3A5F : (hovered ? 0x881E293B : 0x55111827);
-			graphics.fill(rowX, rowY, rowX + rowW, rowBottom, rowBg);
-			if (selected) {
-				graphics.renderOutline(rowX, rowY, rowW, LIST_ROW_HEIGHT - 2, 0xFF38BDF8);
-			}
+				int rowBg = selected ? 0xCC1E3A5F : (hovered ? 0x881E293B : 0x55111827);
+				graphics.fill(rowX, rowY, rowX + rowW, rowBottom, rowBg);
+				if (selected) {
+					graphics.renderOutline(rowX, rowY, rowW, LIST_ROW_HEIGHT - 2, 0xFF38BDF8);
+				}
 
-			int iconX = rowX + 3;
-			int iconY = rowY + 3;
-			drawSmallIcon(graphics, entry, iconX, iconY);
+				int iconX = rowX + 3;
+				int iconY = rowY + 3;
+				drawSmallIcon(graphics, entry, iconX, iconY);
 
-			int textX = iconX + 18;
-			int swatchAreaW = 16;
-			int maxTextW = Math.max(20, rowW - 24 - swatchAreaW);
-			String title = entry.displayName();
-			if (this.font.width(title) > maxTextW) {
-				title = this.font.plainSubstrByWidth(title, maxTextW - 6) + "...";
-			}
-			graphics.drawString(this.font, title, textX, rowY + 2, 0xFFF1F5F9, false);
+				int textX = iconX + 18;
+				int swatchAreaW = 16;
+				int maxTextW = Math.max(20, rowW - 24 - swatchAreaW);
+				String title = entry.displayName();
+				if (this.font.width(title) > maxTextW) {
+					title = this.font.plainSubstrByWidth(title, maxTextW - 6) + "...";
+				}
+				graphics.drawString(this.font, title, textX, rowY + 2, 0xFFF1F5F9, false);
 
-			String sub = entry.id() + (entry.registered() ? "" : " *");
-			if (this.font.width(sub) > maxTextW) {
-				sub = this.font.plainSubstrByWidth(sub, maxTextW - 6) + "...";
-			}
-			graphics.drawString(this.font, sub, textX, rowY + 12, 0xFF94A3B8, false);
+				String sub = entry.id() + (entry.registered() ? "" : " *");
+				if (this.font.width(sub) > maxTextW) {
+					sub = this.font.plainSubstrByWidth(sub, maxTextW - 6) + "...";
+				}
+				graphics.drawString(this.font, sub, textX, rowY + 12, 0xFF94A3B8, false);
 
-			EffectColorOverride ov = workingConfig.effects != null && workingConfig.effects.customEffectColors != null
-					? workingConfig.effects.customEffectColors.get(entry.id())
-					: null;
-			if (ov != null) {
-				int rgb = ColorHexUtils.parseRgb(ov.colorHex).orElse(0xFFFFFF);
+				EffectColorOverride ov = workingConfig.effects != null && workingConfig.effects.customEffectColors != null
+						? workingConfig.effects.customEffectColors.get(entry.id())
+						: null;
 				int sx = rowX + rowW - 13;
 				int sy = rowY + 6;
-				if (ov.enabled) {
-					graphics.fill(sx, sy, sx + 9, sy + 9, 0xFF000000 | rgb);
-					graphics.renderOutline(sx, sy, 9, 9, 0xFFFFFFFF);
+				if (ov != null) {
+					int rgb = ColorHexUtils.parseRgb(ov.colorHex).orElse(entry.autoDisplayRgb());
+					if (ov.enabled) {
+						graphics.fill(sx, sy, sx + 9, sy + 9, 0xFF000000 | rgb);
+						graphics.renderOutline(sx, sy, 9, 9, 0xFFFFFFFF);
+					} else {
+						graphics.fill(sx, sy, sx + 9, sy + 9, 0xFF000000 | entry.autoDisplayRgb());
+						graphics.renderOutline(sx, sy, 9, 9, 0xFF64748B);
+					}
 				} else {
-					graphics.fill(sx, sy, sx + 9, sy + 9, 0x66000000 | rgb);
-					graphics.renderOutline(sx, sy, 9, 9, 0xFF64748B);
+					// Automatic Minecraft effect color indicator
+					graphics.fill(sx, sy, sx + 9, sy + 9, 0xFF000000 | entry.autoDisplayRgb());
+					graphics.renderOutline(sx, sy, 9, 9, 0xFF475569);
 				}
 			}
+		} finally {
+			graphics.disableScissor();
 		}
-		graphics.disableScissor();
 
 		int maxScroll = maxListScroll();
 		if (maxScroll > 0) {
@@ -515,7 +563,7 @@ public final class EffectColorsScreen extends AbstractCustomizableScreen {
 				return;
 			}
 		}
-		graphics.fill(x + 2, y + 2, x + 14, y + 14, 0xFF000000 | (entry.fallbackRgb() & 0xFFFFFF));
+		graphics.fill(x + 2, y + 2, x + 14, y + 14, 0xFF000000 | (entry.autoDisplayRgb() & 0xFFFFFF));
 		graphics.renderOutline(x + 2, y + 2, 12, 12, 0xFFFFFFFF);
 	}
 

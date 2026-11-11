@@ -2,7 +2,7 @@ package dev.customizablehud.config;
 
 public final class EffectColorOverride {
 	public boolean enabled = true;
-	public String colorHex = "#FF66B2";
+	public String colorHex = "#E6EDF3";
 
 	public EffectColorOverride() {
 	}

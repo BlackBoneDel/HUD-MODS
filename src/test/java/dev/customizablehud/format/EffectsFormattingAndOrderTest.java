@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EffectsFormattingAndOrderTest {
@@ -103,26 +104,68 @@ class EffectsFormattingAndOrderTest {
 	}
 
 	@Test
-	void resolvesPerEffectCustomColorsOnlyForTextAndNeverTintsIcons() {
+	void usesNativeEffectColorAutomaticallyByDefaultSupportsReadableFallbackAndCustomOverrides() {
 		EffectsConfig config = new EffectsConfig();
-		assertTrue(config.showEffectBackground);
+		assertFalse(config.showEffectBackground);
 		assertTrue(config.showEffectBorder);
+		assertTrue(config.customEffectColors.isEmpty());
 		assertEquals(VanillaEffectsMode.SHOW_BOTH, config.vanillaEffectsMode);
 
 		// All 4 combinations of independent background/border toggles copy cleanly
-		config.showEffectBackground = false;
-		config.showEffectBorder = true;
-		EffectsConfig copy = config.copy();
-		assertFalse(copy.showEffectBackground);
-		assertTrue(copy.showEffectBorder);
+		for (boolean bg : new boolean[]{false, true}) {
+			for (boolean border : new boolean[]{false, true}) {
+				config.showEffectBackground = bg;
+				config.showEffectBorder = border;
+				EffectsConfig copy = config.copy();
+				assertEquals(bg, copy.showEffectBackground);
+				assertEquals(border, copy.showEffectBorder);
+			}
+		}
 
+		EffectSnapshot speed = new EffectSnapshot(
+				"minecraft:speed", "Speed", EffectCategoryKind.BENEFICIAL, 1, 800, false, false, true, true, 0x33EBFF
+		);
 		EffectSnapshot regen = new EffectSnapshot(
 				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 120, false, false, true, true, 0xCD5CAB
+		);
+		EffectSnapshot strength = new EffectSnapshot(
+				"minecraft:strength", "Strength", EffectCategoryKind.BENEFICIAL, 0, 800, false, false, true, true, 0xFFC700
+		);
+		EffectSnapshot poison = new EffectSnapshot(
+				"minecraft:poison", "Poison", EffectCategoryKind.HARMFUL, 0, 400, false, false, true, true, 0x87A363
 		);
 		EffectSnapshot modded = new EffectSnapshot(
 				"examplemod:mana_regen", "Mana Regen", EffectCategoryKind.BENEFICIAL, 1, 800, false, false, true, true, 0x3366FF
 		);
+		EffectSnapshot untinted = new EffectSnapshot(
+				"examplemod:void_aura", "Void Aura", EffectCategoryKind.NEUTRAL, 0, 800, false, false, true, true, 0x000000
+		);
+		EffectSnapshot darkNative = new EffectSnapshot(
+				"minecraft:blindness", "Blindness", EffectCategoryKind.HARMFUL, 0, 400, false, false, true, true, 0x1F1F23
+		);
 
+		// Without custom overrides, each effect automatically uses its own Minecraft native color
+		assertEquals(0xFF33EBFF, EffectsColorResolver.titleColorArgb(speed, config));
+		assertEquals(0xFF33EBFF, EffectsColorResolver.durationColorArgb(speed, config, 20.0f));
+		assertEquals(0xFFCD5CAB, EffectsColorResolver.titleColorArgb(regen, config));
+		assertEquals(0xFFFFC700, EffectsColorResolver.titleColorArgb(strength, config));
+		assertEquals(0xFF87A363, EffectsColorResolver.titleColorArgb(poison, config));
+		assertEquals(0xFF3366FF, EffectsColorResolver.titleColorArgb(modded, config));
+		assertNotEquals(EffectsColorResolver.titleColorArgb(speed, config), EffectsColorResolver.titleColorArgb(regen, config));
+
+		// Untinted / zero-color effects use a readable fallback instead of black or hardcoded pink
+		assertFalse(EffectsColorResolver.hasNativeColor(untinted.colorRgb()));
+		assertEquals(0xFF000000 | EffectsColorResolver.UNREADABLE_FALLBACK_RGB, EffectsColorResolver.titleColorArgb(untinted, config));
+
+		// Very dark native effects (like Blindness) are brightened smoothly to remain readable without background cards
+		int blindArgb = EffectsColorResolver.titleColorArgb(darkNative, config);
+		int r = (blindArgb >> 16) & 0xFF;
+		int g = (blindArgb >> 8) & 0xFF;
+		int b = blindArgb & 0xFF;
+		float lum = (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255.0f;
+		assertTrue(lum >= EffectsColorResolver.MIN_READABLE_LUMINANCE);
+
+		// Custom override works per effect for text/timer and disables cleanly without losing hex
 		config.customEffectColors.put("minecraft:regeneration", new EffectColorOverride(true, "#FF66B2"));
 		config.customEffectColors.put("examplemod:mana_regen", new EffectColorOverride(false, "#55FFFF"));
 
@@ -130,15 +173,13 @@ class EffectsFormattingAndOrderTest {
 		assertEquals(0xFFFF66B2, EffectsColorResolver.titleColorArgb(regen, config));
 		assertEquals(0xFFFF66B2, EffectsColorResolver.durationColorArgb(regen, config, 20.0f));
 
-		// Disabled override preserves hex in map, but falls back to default title/duration colors
 		assertEquals(OptionalInt.empty(), EffectsColorResolver.resolveCustomRgb("examplemod:mana_regen", config));
-		assertEquals(EffectsColorResolver.DEFAULT_TITLE_COLOR_ARGB, EffectsColorResolver.titleColorArgb(modded, config));
-		assertEquals(0xFFD8DEE9, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
+		assertEquals(0xFF3366FF, EffectsColorResolver.titleColorArgb(modded, config));
 		config.colorDurationByRemaining = true;
 		assertEquals(0xFFE6EDF3, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
 		assertEquals(0xFFFF66B2, EffectsColorResolver.durationColorArgb(regen, config, 20.0f));
 
-		// Icons remain pure white untinted (alpha only) regardless of custom text color
+		// Icons remain pure white untinted (alpha only) regardless of automatic or custom colors
 		assertEquals(0xFFFFFFFF, EffectsColorResolver.iconTintArgb(1.0f));
 	}
 }

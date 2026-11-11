@@ -1,7 +1,7 @@
 package dev.customizablehud.config;
 
 public final class HudConfig {
-	public static final int CURRENT_SCHEMA_VERSION = 2;
+	public static final int CURRENT_SCHEMA_VERSION = 3;
 
 	public int schemaVersion = CURRENT_SCHEMA_VERSION;
 	public ModLanguage language = ModLanguage.ENGLISH;

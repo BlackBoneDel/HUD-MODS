@@ -6,11 +6,25 @@ import dev.customizablehud.config.ConfigValidator;
 import dev.customizablehud.config.DurabilityDisplayMode;
 
 public final class DurabilityFormatter {
+	public static final long BLINK_PHASE_MS = 350L;
+	public static final float BLINK_MIN_ALPHA = 0.45f;
+	public static final float BLINK_MAX_ALPHA = 1.0f;
+	public static final int MAX_ITEM_NAME_CHARS = 16;
+
 	public enum DurabilityLevel {
 		HEALTHY,
 		WARNING,
 		CRITICAL,
 		NONE
+	}
+
+	public record WarningBlinkState(
+			boolean active,
+			boolean highPhase,
+			float indicatorAlpha,
+			int indicatorRgb
+	) {
+		public static final WarningBlinkState INACTIVE = new WarningBlinkState(false, false, 0.0f, 0);
 	}
 
 	private DurabilityFormatter() {
@@ -22,7 +36,7 @@ public final class DurabilityFormatter {
 		}
 		DurabilityDisplayMode mode = config.durabilityDisplayMode != null
 				? config.durabilityDisplayMode
-				: DurabilityDisplayMode.PERCENT_ONLY;
+				: DurabilityDisplayMode.POINTS_ONLY;
 		if (mode == DurabilityDisplayMode.NONE) {
 			return "";
 		}
@@ -42,6 +56,35 @@ public final class DurabilityFormatter {
 					: Integer.toString(remaining);
 			case NONE -> "";
 		};
+	}
+
+	public static String formatItemName(ArmorSlotSnapshot slot, ArmorConfig config) {
+		if (slot == null || !slot.present() || config == null) {
+			return "";
+		}
+		if (!config.shouldShowNameFor(slot.kind())) {
+			return "";
+		}
+		return truncateItemName(slot.itemName(), MAX_ITEM_NAME_CHARS);
+	}
+
+	public static String truncateItemName(String rawName, int maxChars) {
+		if (rawName == null) {
+			return "";
+		}
+		String trimmed = rawName.trim();
+		if (trimmed.isEmpty()) {
+			return "";
+		}
+		int limit = Math.max(4, maxChars);
+		if (trimmed.length() <= limit) {
+			return trimmed;
+		}
+		String cut = trimmed.substring(0, limit - 1).trim();
+		if (cut.isEmpty()) {
+			cut = trimmed.substring(0, limit - 1);
+		}
+		return cut + "…";
 	}
 
 	public static DurabilityLevel classifyLevel(ArmorSlotSnapshot slot, ArmorConfig config) {
@@ -79,6 +122,18 @@ public final class DurabilityFormatter {
 		return classifyLevel(slot, config) == DurabilityLevel.CRITICAL;
 	}
 
+	public static WarningBlinkState computeWarningBlink(ArmorSlotSnapshot slot, ArmorConfig config, long timeMillis) {
+		if (slot == null || config == null || !config.lowDurabilityWarning || !isLowDurability(slot, config)) {
+			return WarningBlinkState.INACTIVE;
+		}
+		long safeMs = timeMillis == Long.MIN_VALUE ? 0L : Math.abs(timeMillis);
+		boolean highPhase = ((safeMs / BLINK_PHASE_MS) % 2L) == 0L;
+		int criticalRgb = colorForLevel(DurabilityLevel.CRITICAL, config) & 0x00FFFFFF;
+		int indicatorRgb = highPhase ? criticalRgb : 0xFF9922;
+		float indicatorAlpha = highPhase ? BLINK_MAX_ALPHA : BLINK_MIN_ALPHA;
+		return new WarningBlinkState(true, highPhase, indicatorAlpha, indicatorRgb);
+	}
+
 	public static int colorForLevel(DurabilityLevel level, ArmorConfig config) {
 		if (level == null || level == DurabilityLevel.NONE || config == null) {
 			return 0xFFFFFFFF;
@@ -96,10 +151,6 @@ public final class DurabilityFormatter {
 			return 0xFFFFFFFF;
 		}
 		DurabilityLevel level = classifyLevel(slot, config);
-		if (config.lowDurabilityWarning && level == DurabilityLevel.CRITICAL) {
-			boolean flash = ((timeMillis / 350L) % 2L) == 0L;
-			return flash ? colorForLevel(DurabilityLevel.CRITICAL, config) : 0xFFFFB84D;
-		}
 		if (!config.colorByDurability || level == DurabilityLevel.NONE) {
 			return 0xFFFFFFFF;
 		}

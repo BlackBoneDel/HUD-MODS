@@ -116,7 +116,7 @@ public final class CustomizableHudClient implements ClientModInitializer {
 	}
 
 	private void onEndClientTick(Minecraft client) {
-		if (!(client.screen instanceof HudEditorScreen editor && editor.isDraggingElement())) {
+		if (!(client.screen instanceof HudEditorScreen editor && editor.isInteracting())) {
 			getConfigManager().tickAutoSave();
 		}
 

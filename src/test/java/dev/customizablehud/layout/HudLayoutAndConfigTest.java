@@ -1,6 +1,8 @@
 package dev.customizablehud.layout;
 
+import dev.customizablehud.config.ArmorBorderStyle;
 import dev.customizablehud.config.ArmorConfig;
+import dev.customizablehud.config.ArmorMetricPosition;
 import dev.customizablehud.config.ArmorSlotKind;
 import dev.customizablehud.config.ArmorVisualStyle;
 import dev.customizablehud.config.ConfigValidator;
@@ -9,6 +11,7 @@ import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudConfig;
 import dev.customizablehud.config.HudOrientation;
+import dev.customizablehud.config.ModLanguage;
 import dev.customizablehud.config.PointOffset;
 import dev.customizablehud.config.PresetCatalog;
 import dev.customizablehud.config.PresetId;
@@ -25,7 +28,9 @@ class HudLayoutAndConfigTest {
 	@Test
 	void computesCompactArmorLayoutAndPreventsTextOverlap() {
 		ArmorConfig config = new ArmorConfig();
-		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, config.durabilityDisplayMode);
+		assertEquals(DurabilityDisplayMode.POINTS_ONLY, config.durabilityDisplayMode);
+		assertEquals(ArmorBorderStyle.PER_SLOT, config.borderStyle);
+		assertEquals(ArmorMetricPosition.ABOVE, config.metricPosition);
 		assertFalse(config.showMainHand);
 		assertFalse(config.showOffHand);
 		assertFalse(config.lowDurabilityWarning);
@@ -44,7 +49,6 @@ class HudLayoutAndConfigTest {
 		HudRect hotbar = HudLayoutEngine.vanillaHotbarRect(640, 360);
 		assertFalse(standard.bounds().intersects(hotbar));
 
-		// Even with wide text label (54px raw), consecutive cells do not overlap and reserve text space above icon
 		for (int i = 0; i < standard.slots().size(); i++) {
 			ArmorSlotPlacement p = standard.slots().get(i);
 			assertTrue(p.textBlockHeight() >= HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT);
@@ -58,12 +62,107 @@ class HudLayoutAndConfigTest {
 		ArmorLayoutResult hiddenEmpty = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
 		assertEquals(3, hiddenEmpty.slots().size());
 
-		// Tiny screen still clamps inside viewport
 		ArmorLayoutResult clamped = HudLayoutEngine.computeArmorLayout(config, metrics, 200, 120);
 		assertTrue(clamped.bounds().x() >= 0);
 		assertTrue(clamped.bounds().y() >= 0);
 		assertTrue(clamped.bounds().right() <= 200);
 		assertTrue(clamped.bounds().bottom() <= 120);
+	}
+
+	@Test
+	void supportsSafeNegativeSpacingWithoutClippingIconsOrOverlappingWideTexts() {
+		ArmorConfig config = new ArmorConfig();
+		config.style = ArmorVisualStyle.VANILLA_HOTBAR; // 20px box around 16px icon -> safe down to -4
+		config.slotSpacing = -4;
+
+		List<ArmorSlotMetric> narrowMetrics = List.of(
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 14, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 14, 0),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 14, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 14, 0)
+		);
+		ArmorLayoutResult tight = HudLayoutEngine.computeArmorLayout(config, narrowMetrics, 640, 360);
+		assertEquals(4, tight.slots().size());
+		// 20px box with -4px spacing yields 16px icon-to-icon step so 16x16 icons touch without overlapping
+		for (int i = 0; i + 1 < tight.slots().size(); i++) {
+			int iconStep = tight.slots().get(i + 1).unscaledIconX() - tight.slots().get(i).unscaledIconX();
+			assertEquals(16, iconStep);
+		}
+		assertEquals(68, tight.unscaledWidth());
+
+		// Borderless style (16px box) enforces minimum safe spacing 0 so icons never overlap each other
+		config.style = ArmorVisualStyle.BORDERLESS;
+		ArmorLayoutResult borderlessTight = HudLayoutEngine.computeArmorLayout(config, narrowMetrics, 640, 360);
+		for (int i = 0; i + 1 < borderlessTight.slots().size(); i++) {
+			int iconStep = borderlessTight.slots().get(i + 1).unscaledIconX() - borderlessTight.slots().get(i).unscaledIconX();
+			assertTrue(iconStep >= 16);
+		}
+
+		// Wide text protects neighboring text even when slotSpacing is -4
+		config.style = ArmorVisualStyle.VANILLA_HOTBAR;
+		List<ArmorSlotMetric> wideMetrics = List.of(
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 48, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 48, 0)
+		);
+		ArmorLayoutResult protectedWide = HudLayoutEngine.computeArmorLayout(config, wideMetrics, 640, 360);
+		ArmorSlotPlacement first = protectedWide.slots().get(0);
+		ArmorSlotPlacement second = protectedWide.slots().get(1);
+		assertTrue(second.unscaledX() - first.unscaledX() >= first.unscaledWidth() - 4);
+	}
+
+	@Test
+	void supportsMetricPositionsAboveBelowLeftRightAndOuterFrameGroups() {
+		List<ArmorSlotMetric> metrics = List.of(
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 24, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 24, 0)
+		);
+
+		ArmorConfig config = new ArmorConfig();
+		config.metricPosition = ArmorMetricPosition.ABOVE;
+		ArmorLayoutResult above = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
+		ArmorSlotPlacement pAbove = above.slots().getFirst();
+		assertTrue(pAbove.textOffsetY() < pAbove.iconOffsetY());
+
+		config.metricPosition = ArmorMetricPosition.BELOW;
+		ArmorLayoutResult below = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
+		ArmorSlotPlacement pBelow = below.slots().getFirst();
+		assertEquals(0, pBelow.iconOffsetY());
+		assertTrue(pBelow.textOffsetY() > pBelow.iconOffsetY());
+
+		config.orientation = HudOrientation.VERTICAL;
+		config.metricPosition = ArmorMetricPosition.LEFT;
+		ArmorLayoutResult left = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
+		ArmorSlotPlacement pLeft = left.slots().getFirst();
+		assertEquals(0, pLeft.textOffsetX());
+		assertTrue(pLeft.iconOffsetX() > pLeft.textOffsetX());
+
+		config.metricPosition = ArmorMetricPosition.RIGHT;
+		ArmorLayoutResult right = HudLayoutEngine.computeArmorLayout(config, metrics, 640, 360);
+		ArmorSlotPlacement pRight = right.slots().getFirst();
+		assertEquals(0, pRight.iconOffsetX());
+		assertTrue(pRight.textOffsetX() > pRight.iconOffsetX());
+
+		// Outer frame groups contiguous armor into 1 continuous rect (and hands into a separate continuous rect)
+		config.orientation = HudOrientation.HORIZONTAL;
+		config.metricPosition = ArmorMetricPosition.ABOVE;
+		config.borderStyle = ArmorBorderStyle.OUTER_FRAME;
+		config.slotSpacing = 0;
+		config.showMainHand = true;
+		List<ArmorSlotMetric> withHand = List.of(
+				new ArmorSlotMetric(ArmorSlotKind.HELMET, true, 20, 0),
+				new ArmorSlotMetric(ArmorSlotKind.CHESTPLATE, true, 20, 0),
+				new ArmorSlotMetric(ArmorSlotKind.LEGGINGS, true, 20, 0),
+				new ArmorSlotMetric(ArmorSlotKind.BOOTS, true, 20, 0),
+				new ArmorSlotMetric(ArmorSlotKind.MAIN_HAND, true, 20, 0)
+		);
+		ArmorLayoutResult outerLayout = HudLayoutEngine.computeArmorLayout(config, withHand, 640, 360);
+		List<HudRect> frames = HudLayoutEngine.computeArmorOuterFrameRects(outerLayout, false);
+		assertEquals(2, frames.size());
+		assertEquals(80, frames.get(0).width());
+		assertEquals(20, frames.get(0).height());
+		assertEquals(20, frames.get(1).width());
 	}
 
 	@Test
@@ -143,6 +242,39 @@ class HudLayoutAndConfigTest {
 	}
 
 	@Test
+	void resizesProportionallyFromCornerHandlesKeepingOppositeCornerAnchoredAndClamped() {
+		HudRect initial = new HudRect(100, 100, 100, 60);
+
+		// Drag bottom-right corner outward to 2x size -> top-left stays anchored at (100, 100)
+		HudLayoutEngine.ResizeResult br = HudLayoutEngine.computeResizeFromCorner(
+				initial, 100, 60, HudLayoutEngine.ResizeCorner.BOTTOM_RIGHT, 300, 220, 800, 600
+		);
+		assertEquals(2.0f, br.scale());
+		assertEquals(100, br.offsetX());
+		assertEquals(100, br.offsetY());
+		assertEquals(200, br.bounds().width());
+		assertEquals(120, br.bounds().height());
+
+		// Drag top-left corner inward to 0.5x size -> bottom-right stays anchored at (200, 160)
+		HudLayoutEngine.ResizeResult tl = HudLayoutEngine.computeResizeFromCorner(
+				initial, 100, 60, HudLayoutEngine.ResizeCorner.TOP_LEFT, 150, 130, 800, 600
+		);
+		assertEquals(0.5f, tl.scale());
+		assertEquals(200, tl.bounds().right());
+		assertEquals(160, tl.bounds().bottom());
+
+		// Extreme drag clamps scale to MAX_SCALE and clamps inside small screen bounds
+		HudLayoutEngine.ResizeResult clamped = HudLayoutEngine.computeResizeFromCorner(
+				initial, 100, 60, HudLayoutEngine.ResizeCorner.BOTTOM_RIGHT, 999, 999, 320, 200
+		);
+		assertEquals(ConfigValidator.MAX_SCALE, clamped.scale());
+		assertTrue(clamped.bounds().x() >= 0);
+		assertTrue(clamped.bounds().y() >= 0);
+		assertTrue(clamped.bounds().right() <= 320);
+		assertTrue(clamped.bounds().bottom() <= 200);
+	}
+
+	@Test
 	void snapsToGridCenterGuidesAndClampsToScreen() {
 		HudRect hotbarRef = new HudRect(229, 338, 182, 22);
 		HudLayoutEngine.SnapResult gridSnapped = HudLayoutEngine.snapPosition(
@@ -184,17 +316,20 @@ class HudLayoutAndConfigTest {
 	}
 
 	@Test
-	void validatesThresholdsColorsAndSanitizesOutOfBoundsConfigFields() {
+	void validatesThresholdsColorsSpacingAndSanitizesOutOfBoundsConfigFields() {
 		HudConfig dirty = new HudConfig();
 		dirty.schemaVersion = 999;
 		dirty.language = null;
 		dirty.armor.scale = 12.0f;
-		dirty.armor.slotSpacing = -5;
+		dirty.armor.slotSpacing = -9;
+		dirty.armor.borderStyle = null;
+		dirty.armor.metricPosition = null;
 		dirty.armor.warningThresholdPercent = 50;
-		dirty.armor.criticalThresholdPercent = 55; // invalid >= warning
+		dirty.armor.criticalThresholdPercent = 55;
 		dirty.armor.healthyColorHex = "not_hex";
 		dirty.armor.armorOrder = List.of(ArmorSlotKind.BOOTS, ArmorSlotKind.BOOTS);
 		dirty.armor.individualOffsets = null;
+		dirty.effects.rowSpacing = -2;
 		dirty.effects.vanillaEffectsMode = null;
 
 		ConfigValidator.ValidationResult result = ConfigValidator.validateAndSanitize(dirty);
@@ -202,7 +337,10 @@ class HudLayoutAndConfigTest {
 		HudConfig clean = result.config();
 		assertEquals(HudConfig.CURRENT_SCHEMA_VERSION, clean.schemaVersion);
 		assertEquals(ConfigValidator.MAX_SCALE, clean.armor.scale);
-		assertEquals(ConfigValidator.MIN_SPACING, clean.armor.slotSpacing);
+		assertEquals(ConfigValidator.MIN_ARMOR_SPACING, clean.armor.slotSpacing);
+		assertEquals(ArmorBorderStyle.PER_SLOT, clean.armor.borderStyle);
+		assertEquals(ArmorMetricPosition.ABOVE, clean.armor.metricPosition);
+		assertEquals(ConfigValidator.MIN_SPACING, clean.effects.rowSpacing);
 		assertTrue(clean.armor.criticalThresholdPercent < clean.armor.warningThresholdPercent);
 		assertEquals("#6EEB83", clean.armor.healthyColorHex);
 		assertEquals(4, clean.armor.armorOrder.size());
@@ -213,14 +351,15 @@ class HudLayoutAndConfigTest {
 	@Test
 	void appliesPresetsWithSingleMetricOnlyAndPreservesLanguageAndCustomColors() {
 		HudConfig cfg = HudConfig.createDefault();
-		cfg.language = dev.customizablehud.config.ModLanguage.SPANISH;
+		cfg.language = ModLanguage.SPANISH;
 		cfg.effects.customEffectColors.put("minecraft:regeneration",
 				new dev.customizablehud.config.EffectColorOverride(true, "#FF66B2"));
 
 		PresetCatalog.applyPreset(cfg, PresetId.COMPACT_TEXT);
 		assertEquals(HudOrientation.VERTICAL, cfg.armor.orientation);
 		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, cfg.armor.durabilityDisplayMode);
-		assertEquals(dev.customizablehud.config.ModLanguage.SPANISH, cfg.language);
+		assertFalse(cfg.effects.showEffectBackground);
+		assertEquals(ModLanguage.SPANISH, cfg.language);
 		assertTrue(cfg.effects.customEffectColors.containsKey("minecraft:regeneration"));
 
 		PresetCatalog.applyPreset(cfg, PresetId.EXPANDED_READOUT);
@@ -230,7 +369,8 @@ class HudLayoutAndConfigTest {
 
 		PresetCatalog.applyPreset(cfg, PresetId.VANILLA_COMPACT);
 		assertEquals(HudAnchor.HOTBAR_LEFT, cfg.armor.anchor);
-		assertEquals(DurabilityDisplayMode.PERCENT_ONLY, cfg.armor.durabilityDisplayMode);
+		assertEquals(DurabilityDisplayMode.POINTS_ONLY, cfg.armor.durabilityDisplayMode);
+		assertFalse(cfg.effects.showEffectBackground);
 		assertEquals(VanillaEffectsMode.SHOW_BOTH, cfg.effects.vanillaEffectsMode);
 	}
 }

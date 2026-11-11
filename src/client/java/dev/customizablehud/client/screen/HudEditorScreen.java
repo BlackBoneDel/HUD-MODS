@@ -36,6 +36,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 
 	private static final int ROW_STEP = 22;
 	private static final int PANEL_PAD = 4;
+	private static final int HANDLE_HIT_RADIUS = 6;
 
 	private final HudConfig entrySnapshot;
 	private final Consumer<HudConfig> onSyncParent;
@@ -46,6 +47,10 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 	private boolean draggingElement = false;
 	private int dragOffsetX = 0;
 	private int dragOffsetY = 0;
+	private HudLayoutEngine.ResizeCorner resizingCorner = null;
+	private HudRect resizeStartBounds = HudRect.EMPTY;
+	private int resizeStartUnscaledW = 0;
+	private int resizeStartUnscaledH = 0;
 	private List<GuideLine> activeGuides = List.of();
 
 	private ArmorLayoutResult lastArmorLayout;
@@ -78,7 +83,11 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 	}
 
 	public boolean isDraggingElement() {
-		return draggingElement;
+		return draggingElement || resizingCorner != null;
+	}
+
+	public boolean isInteracting() {
+		return draggingElement || resizingCorner != null;
 	}
 
 	private int toolbarWidth() {
@@ -457,8 +466,22 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 				workingConfig.effects.enabled ? 1.0f : 0.38f
 		);
 
-		drawModuleOverlay(graphics, ModuleTarget.ARMOR, lastArmorLayout != null ? lastArmorLayout.bounds() : HudRect.EMPTY, workingConfig.armor.enabled);
-		drawModuleOverlay(graphics, ModuleTarget.EFFECTS, lastEffectsLayout != null ? lastEffectsLayout.bounds() : HudRect.EMPTY, workingConfig.effects.enabled);
+		drawModuleOverlay(
+				graphics,
+				ModuleTarget.ARMOR,
+				lastArmorLayout != null ? lastArmorLayout.bounds() : HudRect.EMPTY,
+				workingConfig.armor.enabled,
+				mouseX,
+				mouseY
+		);
+		drawModuleOverlay(
+				graphics,
+				ModuleTarget.EFFECTS,
+				lastEffectsLayout != null ? lastEffectsLayout.bounds() : HudRect.EMPTY,
+				workingConfig.effects.enabled,
+				mouseX,
+				mouseY
+		);
 
 		if (workingConfig.armor.individualPositionsEnabled && lastArmorLayout != null) {
 			for (ArmorSlotPlacement placement : lastArmorLayout.slots()) {
@@ -506,7 +529,23 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		super.render(graphics, mouseX, mouseY, partialTick);
 	}
 
-	private void drawModuleOverlay(GuiGraphics graphics, ModuleTarget target, HudRect bounds, boolean enabled) {
+	private boolean canResizeModule(ModuleTarget target) {
+		if (target == ModuleTarget.EFFECTS) {
+			return lastEffectsLayout != null && !lastEffectsLayout.bounds().isEmpty();
+		}
+		return !workingConfig.armor.individualPositionsEnabled
+				&& lastArmorLayout != null
+				&& !lastArmorLayout.bounds().isEmpty();
+	}
+
+	private void drawModuleOverlay(
+			GuiGraphics graphics,
+			ModuleTarget target,
+			HudRect bounds,
+			boolean enabled,
+			int mouseX,
+			int mouseY
+	) {
 		if (bounds == null || bounds.isEmpty()) {
 			return;
 		}
@@ -515,16 +554,27 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		if (selected) {
 			borderColor = enabled ? 0xFF38BDF8 : 0xFFF87171;
 		} else {
-			borderColor = enabled ? 0x77CBD5E1 : 0x77EF4444;
+			borderColor = enabled ? 0x99CBD5E1 : 0x99EF4444;
 		}
 		graphics.renderOutline(bounds.x() - 2, bounds.y() - 2, bounds.width() + 4, bounds.height() + 4, borderColor);
 
-		if (selected) {
-			int handle = 0xFF38BDF8;
-			graphics.fill(bounds.x() - 3, bounds.y() - 3, bounds.x(), bounds.y(), handle);
-			graphics.fill(bounds.right(), bounds.y() - 3, bounds.right() + 3, bounds.y(), handle);
-			graphics.fill(bounds.x() - 3, bounds.bottom(), bounds.x(), bounds.bottom() + 3, handle);
-			graphics.fill(bounds.right(), bounds.bottom(), bounds.right() + 3, bounds.bottom() + 3, handle);
+		if (canResizeModule(target)) {
+			HudLayoutEngine.ResizeCorner hoveredCorner = hitTestResizeCorner(bounds, mouseX, mouseY);
+			for (HudLayoutEngine.ResizeCorner corner : HudLayoutEngine.ResizeCorner.values()) {
+				int cx = (corner == HudLayoutEngine.ResizeCorner.TOP_LEFT || corner == HudLayoutEngine.ResizeCorner.BOTTOM_LEFT)
+						? bounds.x() - 1
+						: bounds.right() + 1;
+				int cy = (corner == HudLayoutEngine.ResizeCorner.TOP_LEFT || corner == HudLayoutEngine.ResizeCorner.TOP_RIGHT)
+						? bounds.y() - 1
+						: bounds.bottom() + 1;
+				boolean activeHandle = (selected && resizingCorner == corner) || (resizingCorner == null && hoveredCorner == corner);
+				int fillColor = activeHandle
+						? 0xFFFDE047
+						: (selected ? 0xFF38BDF8 : (enabled ? 0xCC94A3B8 : 0xCCF87171));
+				int bgColor = selected ? 0xFF0F172A : 0xCC0F172A;
+				graphics.fill(cx - 3, cy - 3, cx + 3, cy + 3, bgColor);
+				graphics.fill(cx - 2, cy - 2, cx + 2, cy + 2, fillColor);
+			}
 		}
 
 		Component badge = buildBadgeText(target, enabled);
@@ -544,10 +594,12 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 				? t(selectedArmorSlot.translationKey())
 				: t("customizablehud.module.armor"))
 				: t("customizablehud.module.effects");
+		float scale = target == ModuleTarget.ARMOR ? workingConfig.armor.scale : workingConfig.effects.scale;
+		String scaleSuffix = String.format(Locale.ROOT, " · %.2fx", scale);
 		if (enabled) {
-			return base;
+			return Component.empty().append(base).append(scaleSuffix);
 		}
-		return Component.empty().append(base).append(" (").append(t("customizablehud.badge.disabled")).append(")");
+		return Component.empty().append(base).append(scaleSuffix).append(" (").append(t("customizablehud.badge.disabled")).append(")");
 	}
 
 	private boolean detectEditorOverlap(HudRect hotbarRef) {
@@ -571,6 +623,49 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		return HudLayoutEngine.hasAnyOverlap(rects);
 	}
 
+	private HudLayoutEngine.ResizeCorner hitTestResizeCorner(HudRect bounds, double mouseX, double mouseY) {
+		if (bounds == null || bounds.isEmpty()) {
+			return null;
+		}
+		HudLayoutEngine.ResizeCorner bestCorner = null;
+		double bestDistSq = Double.MAX_VALUE;
+		for (HudLayoutEngine.ResizeCorner corner : HudLayoutEngine.ResizeCorner.values()) {
+			double cx = (corner == HudLayoutEngine.ResizeCorner.TOP_LEFT || corner == HudLayoutEngine.ResizeCorner.BOTTOM_LEFT)
+					? bounds.x() - 1
+					: bounds.right() + 1;
+			double cy = (corner == HudLayoutEngine.ResizeCorner.TOP_LEFT || corner == HudLayoutEngine.ResizeCorner.TOP_RIGHT)
+					? bounds.y() - 1
+					: bounds.bottom() + 1;
+			if (Math.abs(mouseX - cx) <= HANDLE_HIT_RADIUS && Math.abs(mouseY - cy) <= HANDLE_HIT_RADIUS) {
+				double distSq = (mouseX - cx) * (mouseX - cx) + (mouseY - cy) * (mouseY - cy);
+				if (distSq < bestDistSq) {
+					bestDistSq = distSq;
+					bestCorner = corner;
+				}
+			}
+		}
+		return bestCorner;
+	}
+
+	private boolean beginResizeIfHandleHit(ModuleTarget target, double mouseX, double mouseY) {
+		if (!canResizeModule(target)) {
+			return false;
+		}
+		HudRect bounds = target == ModuleTarget.ARMOR ? lastArmorLayout.bounds() : lastEffectsLayout.bounds();
+		HudLayoutEngine.ResizeCorner corner = hitTestResizeCorner(bounds, mouseX, mouseY);
+		if (corner == null) {
+			return false;
+		}
+		selectedModule = target;
+		resizingCorner = corner;
+		draggingElement = false;
+		resizeStartBounds = bounds;
+		resizeStartUnscaledW = target == ModuleTarget.ARMOR ? lastArmorLayout.unscaledWidth() : lastEffectsLayout.unscaledWidth();
+		resizeStartUnscaledH = target == ModuleTarget.ARMOR ? lastArmorLayout.unscaledHeight() : lastEffectsLayout.unscaledHeight();
+		syncControlsFromSelection();
+		return true;
+	}
+
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean isDoubleClick) {
 		if (super.mouseClicked(event, isDoubleClick)) {
@@ -589,6 +684,16 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 		}
 
 		if (event.button() == 0) {
+			// Priority 1: Resize handles of the selected module (and then the other module)
+			ModuleTarget other = selectedModule == ModuleTarget.ARMOR ? ModuleTarget.EFFECTS : ModuleTarget.ARMOR;
+			if (beginResizeIfHandleHit(selectedModule, event.x(), event.y())) {
+				return true;
+			}
+			if (beginResizeIfHandleHit(other, event.x(), event.y())) {
+				return true;
+			}
+
+			// Priority 2: Individual armor slot drag
 			if (workingConfig.armor.individualPositionsEnabled && lastArmorLayout != null) {
 				for (int i = lastArmorLayout.slots().size() - 1; i >= 0; i--) {
 					ArmorSlotPlacement placement = lastArmorLayout.slots().get(i);
@@ -604,6 +709,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 				}
 			}
 
+			// Priority 3: Whole-module drag move
 			HudRect armorBounds = lastArmorLayout != null ? lastArmorLayout.bounds() : HudRect.EMPTY;
 			HudRect effectsBounds = lastEffectsLayout != null ? lastEffectsLayout.bounds() : HudRect.EMPTY;
 			boolean hitArmor = expandedContains(armorBounds, event.x(), event.y());
@@ -634,6 +740,26 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+		if (resizingCorner != null && event.button() == 0) {
+			HudLayoutEngine.ResizeResult resized = HudLayoutEngine.computeResizeFromCorner(
+					resizeStartBounds,
+					resizeStartUnscaledW,
+					resizeStartUnscaledH,
+					resizingCorner,
+					(int) Math.round(event.x()),
+					(int) Math.round(event.y()),
+					this.width,
+					this.height
+			);
+			applyScale(resized.scale());
+			commitScreenPosition(resized.offsetX(), resized.offsetY());
+			if (scaleSlider != null) {
+				scaleSlider.setScaleValue(resized.scale());
+			}
+			updateScaleEditBoxText(resized.scale());
+			notifyEditorChanged();
+			return true;
+		}
 		if (draggingElement && event.button() == 0) {
 			int rawX = (int) Math.round(event.x()) - dragOffsetX;
 			int rawY = (int) Math.round(event.y()) - dragOffsetY;
@@ -645,8 +771,10 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent event) {
-		if (draggingElement && event.button() == 0) {
+		if ((draggingElement || resizingCorner != null) && event.button() == 0) {
 			draggingElement = false;
+			resizingCorner = null;
+			resizeStartBounds = HudRect.EMPTY;
 			activeGuides = List.of();
 			notifyEditorChanged();
 			return true;

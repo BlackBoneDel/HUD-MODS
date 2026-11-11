@@ -1,7 +1,9 @@
 package dev.customizablehud.client.screen;
 
 import dev.customizablehud.client.hud.ArmorHudRenderer;
+import dev.customizablehud.config.ArmorBorderStyle;
 import dev.customizablehud.config.ArmorConfig;
+import dev.customizablehud.config.ArmorMetricPosition;
 import dev.customizablehud.config.ArmorSlotKind;
 import dev.customizablehud.config.ArmorVisualStyle;
 import dev.customizablehud.config.ColorHexUtils;
@@ -95,6 +97,28 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
+				CycleButton.builder((ArmorBorderStyle bs) -> t(bs.translationKey()), armor.borderStyle)
+						.withValues(List.of(ArmorBorderStyle.values()))
+						.withTooltip(val -> Tooltip.create(t(val.tooltipKey())))
+						.create(leftX, 0, halfW, 20, t("customizablehud.armor.border_style"), (btn, val) -> {
+							armor.borderStyle = val;
+							notifyConfigEdited();
+						}),
+				y
+		);
+		addScrollWidget(
+				CycleButton.builder((ArmorMetricPosition mp) -> t(mp.translationKey()), armor.metricPosition)
+						.withValues(List.of(ArmorMetricPosition.values()))
+						.withTooltip(val -> Tooltip.create(t(val.tooltipKey())))
+						.create(rightX, 0, halfW, 20, t("customizablehud.armor.metric_pos"), (btn, val) -> {
+							armor.metricPosition = val;
+							notifyConfigEdited();
+						}),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
 				CycleButton.builder((HudAnchor a) -> t(a.translationKey()), armor.anchor)
 						.withValues(List.of(HudAnchor.values()))
 						.withTooltip(val -> Tooltip.create(t(val.tooltipKey())))
@@ -160,7 +184,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 						20,
 						t("customizablehud.option.spacing"),
 						" px",
-						ConfigValidator.MIN_SPACING,
+						ConfigValidator.MIN_ARMOR_SPACING,
 						ConfigValidator.MAX_SPACING,
 						armor.slotSpacing,
 						val -> {
@@ -392,6 +416,22 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 						: "customizablehud.tooltip.armor.off_hand_off")))
 						.create(rightX, 0, halfW, 20, t("customizablehud.armor.off_hand"), (btn, val) -> {
 							armor.showOffHand = val;
+							notifyConfigEdited();
+						}),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
+				CycleButton.booleanBuilder(
+						t("customizablehud.state.on"),
+						t("customizablehud.state.off"),
+						armor.showHandItemName
+				).withTooltip(val -> Tooltip.create(t(val
+						? "customizablehud.tooltip.armor.hand_name_on"
+						: "customizablehud.tooltip.armor.hand_name_off")))
+						.create(leftX, 0, panelW, 20, t("customizablehud.armor.hand_name"), (btn, val) -> {
+							armor.showHandItemName = val;
 							notifyConfigEdited();
 						}),
 				y

@@ -1,7 +1,9 @@
 package dev.customizablehud.client.hud;
 
 import dev.customizablehud.client.CustomizableHudClient;
+import dev.customizablehud.config.ArmorBorderStyle;
 import dev.customizablehud.config.ArmorConfig;
+import dev.customizablehud.config.ArmorMetricPosition;
 import dev.customizablehud.config.ArmorSlotKind;
 import dev.customizablehud.config.ArmorVisualStyle;
 import dev.customizablehud.config.HudAnchor;
@@ -14,6 +16,7 @@ import dev.customizablehud.layout.ArmorLayoutResult;
 import dev.customizablehud.layout.ArmorSlotMetric;
 import dev.customizablehud.layout.ArmorSlotPlacement;
 import dev.customizablehud.layout.HudLayoutEngine;
+import dev.customizablehud.layout.HudRect;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -33,6 +36,8 @@ import org.joml.Matrix3x2fStack;
 public final class ArmorHudRenderer {
 	private static final Identifier HOTBAR_OFFHAND_LEFT_SPRITE = Identifier.withDefaultNamespace("hud/hotbar_offhand_left");
 	private static final Identifier INVENTORY_SLOT_SPRITE = Identifier.withDefaultNamespace("container/slot");
+	private static final System.Logger LOGGER = System.getLogger("CustomizableHUD/ArmorRenderer");
+	private static long lastErrorLogMs = Long.MIN_VALUE;
 
 	private ArmorHudRenderer() {
 	}
@@ -100,13 +105,19 @@ public final class ArmorHudRenderer {
 		long nowMs = Util.getMillis();
 
 		graphics.enableScissor(boxX, boxY, boxX + boxW, boxY + boxH);
-		Matrix3x2fStack pose = graphics.pose();
-		pose.pushMatrix();
-		pose.translate(drawX, drawY);
-		pose.scale(fitScale, fitScale);
-		renderPlacedSlots(graphics, font, previewConfig, layout, byKind, nowMs, alpha);
-		pose.popMatrix();
-		graphics.disableScissor();
+		try {
+			Matrix3x2fStack pose = graphics.pose();
+			pose.pushMatrix();
+			try {
+				pose.translate(drawX, drawY);
+				pose.scale(fitScale, fitScale);
+				renderPlacedSlots(graphics, font, previewConfig, layout, byKind, nowMs, alpha);
+			} finally {
+				pose.popMatrix();
+			}
+		} finally {
+			graphics.disableScissor();
+		}
 	}
 
 	public static List<ArmorSlotKind> captureIndividualPositionsFromAuto(
@@ -141,7 +152,7 @@ public final class ArmorHudRenderer {
 		List<ArmorSlotMetric> metrics = new ArrayList<>(entries.size());
 		for (LiveDataCollector.ArmorRenderEntry entry : entries) {
 			String label = DurabilityFormatter.format(entry.snapshot(), config);
-			String name = config.showItemName && entry.snapshot().present() ? entry.snapshot().itemName() : "";
+			String name = DurabilityFormatter.formatItemName(entry.snapshot(), config);
 			metrics.add(new ArmorSlotMetric(
 					entry.kind(),
 					entry.snapshot().present(),
@@ -190,6 +201,7 @@ public final class ArmorHudRenderer {
 
 		Map<ArmorSlotKind, LiveDataCollector.ArmorRenderEntry> byKind = mapByKind(entries);
 		long nowMs = Util.getMillis();
+		float safeAlpha = Math.max(0.0f, Math.min(1.0f, alpha));
 		Matrix3x2fStack pose = graphics.pose();
 
 		if (config.individualPositionsEnabled) {
@@ -199,19 +211,25 @@ public final class ArmorHudRenderer {
 					continue;
 				}
 				pose.pushMatrix();
-				pose.translate(placement.screenBounds().x(), placement.screenBounds().y());
-				pose.scale(layout.scale(), layout.scale());
-				drawSlot(graphics, font, config, entry, placement, 0, 0, nowMs, alpha);
-				pose.popMatrix();
+				try {
+					pose.translate(placement.screenBounds().x(), placement.screenBounds().y());
+					pose.scale(layout.scale(), layout.scale());
+					drawSlotSafe(graphics, font, config, entry, placement, 0, 0, true, nowMs, safeAlpha);
+				} finally {
+					pose.popMatrix();
+				}
 			}
 			return layout;
 		}
 
 		pose.pushMatrix();
-		pose.translate(layout.originX(), layout.originY());
-		pose.scale(layout.scale(), layout.scale());
-		renderPlacedSlots(graphics, font, config, layout, byKind, nowMs, alpha);
-		pose.popMatrix();
+		try {
+			pose.translate(layout.originX(), layout.originY());
+			pose.scale(layout.scale(), layout.scale());
+			renderPlacedSlots(graphics, font, config, layout, byKind, nowMs, safeAlpha);
+		} finally {
+			pose.popMatrix();
+		}
 		return layout;
 	}
 
@@ -225,6 +243,17 @@ public final class ArmorHudRenderer {
 			float alpha
 	) {
 		boolean vertical = config.orientation == HudOrientation.VERTICAL;
+		boolean outerFrame = config.borderStyle == ArmorBorderStyle.OUTER_FRAME;
+
+		if (outerFrame) {
+			List<HudRect> frameRects = HudLayoutEngine.computeArmorOuterFrameRects(layout, vertical);
+			for (HudRect frame : frameRects) {
+				if (frame != null && !frame.isEmpty()) {
+					drawContinuousOuterFrame(graphics, config.style, frame.x(), frame.y(), frame.width(), frame.height(), alpha);
+				}
+			}
+		}
+
 		ArmorSlotPlacement prevArmorPlacement = null;
 		boolean drewHandDivider = false;
 
@@ -233,7 +262,7 @@ public final class ArmorHudRenderer {
 			if (entry == null) {
 				continue;
 			}
-			if (!drewHandDivider && prevArmorPlacement != null && prevArmorPlacement.kind().isArmorPiece() && !placement.kind().isArmorPiece()) {
+			if (!outerFrame && !drewHandDivider && prevArmorPlacement != null && prevArmorPlacement.kind().isArmorPiece() && !placement.kind().isArmorPiece()) {
 				drewHandDivider = true;
 				int dividerColor = ARGB.color(0.45f * alpha, 0xFF94A3B8);
 				if (vertical) {
@@ -242,14 +271,39 @@ public final class ArmorHudRenderer {
 					graphics.fill(0, divY, divW, divY + 1, dividerColor);
 				} else {
 					int divX = (prevArmorPlacement.unscaledX() + prevArmorPlacement.unscaledWidth() + placement.unscaledX()) / 2;
-					int topY = Math.max(prevArmorPlacement.textBlockHeight(), placement.textBlockHeight());
-					int bottomY = Math.max(prevArmorPlacement.unscaledHeight(), placement.unscaledHeight());
+					int topY = Math.min(prevArmorPlacement.unscaledIconY(), placement.unscaledIconY());
+					int bottomY = Math.max(
+							prevArmorPlacement.unscaledIconY() + prevArmorPlacement.slotBoxSize(),
+							placement.unscaledIconY() + placement.slotBoxSize()
+					);
 					graphics.fill(divX, topY + 2, divX + 1, Math.max(topY + 4, bottomY - 2), dividerColor);
 				}
 			}
-			drawSlot(graphics, font, config, entry, placement, placement.unscaledX(), placement.unscaledY(), nowMs, alpha);
+			drawSlotSafe(graphics, font, config, entry, placement, placement.unscaledX(), placement.unscaledY(), !outerFrame, nowMs, alpha);
 			if (placement.kind().isArmorPiece()) {
 				prevArmorPlacement = placement;
+			}
+		}
+	}
+
+	private static void drawSlotSafe(
+			GuiGraphics graphics,
+			Font font,
+			ArmorConfig config,
+			LiveDataCollector.ArmorRenderEntry entry,
+			ArmorSlotPlacement placement,
+			int cellX,
+			int cellY,
+			boolean drawSlotBox,
+			long nowMs,
+			float alpha
+	) {
+		try {
+			drawSlot(graphics, font, config, entry, placement, cellX, cellY, drawSlotBox, nowMs, alpha);
+		} catch (RuntimeException ex) {
+			if (lastErrorLogMs == Long.MIN_VALUE || (nowMs - lastErrorLogMs) >= 10000L) {
+				LOGGER.log(System.Logger.Level.WARNING, "Failed rendering armor HUD slot " + entry.kind(), ex);
+				lastErrorLogMs = nowMs;
 			}
 		}
 	}
@@ -262,52 +316,25 @@ public final class ArmorHudRenderer {
 			ArmorSlotPlacement placement,
 			int cellX,
 			int cellY,
+			boolean drawSlotBox,
 			long nowMs,
 			float alpha
 	) {
 		int boxSize = placement.slotBoxSize();
-		int textAreaH = placement.textBlockHeight();
-		int gapAboveIcon = (textAreaH > 0 && boxSize > 0) ? HudLayoutEngine.ARMOR_TEXT_ICON_GAP : 0;
+		int iconBoxX = cellX + placement.iconOffsetX();
+		int iconBoxY = cellY + placement.iconOffsetY();
 
-		int iconBoxX = cellX + (placement.unscaledWidth() - boxSize) / 2;
-		int iconBoxY = cellY + textAreaH + gapAboveIcon;
-
-		String name = config.showItemName && entry.snapshot().present() ? entry.snapshot().itemName() : "";
+		String name = DurabilityFormatter.formatItemName(entry.snapshot(), config);
 		String label = DurabilityFormatter.format(entry.snapshot(), config);
 		if (!name.isEmpty() || !label.isEmpty()) {
-			int textCenterX = cellX + placement.unscaledWidth() / 2;
-			int lines = (name.isEmpty() ? 0 : 1) + (label.isEmpty() ? 0 : 1);
-			int blockHeight = lines * HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT;
-			int textStartY = cellY + Math.max(0, textAreaH - blockHeight);
-			float textScale = HudLayoutEngine.HORIZONTAL_ARMOR_TEXT_SCALE;
-			int nameColor = ARGB.color(alpha, 0xFFE5E9F0);
-			int labelColor = ARGB.multiplyAlpha(DurabilityFormatter.textColorArgb(entry.snapshot(), config, nowMs), alpha);
-
-			Matrix3x2fStack pose = graphics.pose();
-			if (!name.isEmpty()) {
-				pose.pushMatrix();
-				pose.translate(textCenterX, textStartY);
-				pose.scale(textScale, textScale);
-				graphics.drawString(font, name, -font.width(name) / 2, 0, nameColor, true);
-				pose.popMatrix();
-				textStartY += HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT;
-			}
-			if (!label.isEmpty()) {
-				pose.pushMatrix();
-				pose.translate(textCenterX, textStartY);
-				pose.scale(textScale, textScale);
-				graphics.drawString(font, label, -font.width(label) / 2, 0, labelColor, true);
-				pose.popMatrix();
-			}
+			drawSlotText(graphics, font, config, entry, placement, cellX, cellY, name, label, nowMs, alpha);
 		}
 
-		if (config.showIcon && boxSize > 0) {
-			drawSlotBackground(graphics, config.style, entry.kind(), iconBoxX, iconBoxY, boxSize, alpha);
+		DurabilityFormatter.WarningBlinkState blink = DurabilityFormatter.computeWarningBlink(entry.snapshot(), config, nowMs);
 
-			if (config.lowDurabilityWarning && DurabilityFormatter.isLowDurability(entry.snapshot(), config)) {
-				boolean flash = ((nowMs / 350L) % 2L) == 0L;
-				int warnColor = ARGB.color(alpha, flash ? 0xFFFF4444 : 0xFFFF9922);
-				graphics.renderOutline(iconBoxX, iconBoxY, boxSize, boxSize, warnColor);
+		if (config.showIcon && boxSize > 0) {
+			if (drawSlotBox) {
+				drawSlotBackground(graphics, config.style, entry.kind(), iconBoxX, iconBoxY, boxSize, alpha);
 			}
 
 			int itemX = iconBoxX + (boxSize - 16) / 2;
@@ -328,6 +355,150 @@ public final class ArmorHudRenderer {
 					graphics.blitSprite(RenderPipelines.GUI_TEXTURED, emptySprite, itemX, itemY, 16, 16, ARGB.white(0.42f * alpha));
 				}
 			}
+
+			if (blink.active()) {
+				drawWarningIndicator(graphics, iconBoxX, iconBoxY, boxSize, boxSize, blink, alpha);
+			}
+		} else if (blink.active()) {
+			drawWarningIndicator(graphics, cellX, cellY, placement.unscaledWidth(), placement.unscaledHeight(), blink, alpha);
+		}
+	}
+
+	private static void drawSlotText(
+			GuiGraphics graphics,
+			Font font,
+			ArmorConfig config,
+			LiveDataCollector.ArmorRenderEntry entry,
+			ArmorSlotPlacement placement,
+			int cellX,
+			int cellY,
+			String name,
+			String label,
+			long nowMs,
+			float alpha
+	) {
+		ArmorMetricPosition metricPos = placement.metricPosition() != null
+				? placement.metricPosition()
+				: ArmorMetricPosition.ABOVE;
+		float textScale = HudLayoutEngine.HORIZONTAL_ARMOR_TEXT_SCALE;
+		int nameColor = ARGB.color(alpha, 0xFFE5E9F0);
+		int labelColor = ARGB.multiplyAlpha(DurabilityFormatter.textColorArgb(entry.snapshot(), config, nowMs), alpha);
+
+		record TextLine(String text, int color) {
+		}
+		List<TextLine> lines = new ArrayList<>(2);
+		if (metricPos == ArmorMetricPosition.BELOW) {
+			// Keep metric immediately adjacent to icon bottom, then item name below if enabled
+			if (!label.isEmpty()) {
+				lines.add(new TextLine(label, labelColor));
+			}
+			if (!name.isEmpty()) {
+				lines.add(new TextLine(name, nameColor));
+			}
+		} else {
+			if (!name.isEmpty()) {
+				lines.add(new TextLine(name, nameColor));
+			}
+			if (!label.isEmpty()) {
+				lines.add(new TextLine(label, labelColor));
+			}
+		}
+
+		int textAreaX = cellX + placement.textOffsetX();
+		int textY = cellY + placement.textOffsetY();
+		int areaW = Math.max(1, placement.textAreaWidth());
+		Matrix3x2fStack pose = graphics.pose();
+
+		for (TextLine line : lines) {
+			int w = font.width(line.text());
+			float anchorX;
+			int drawOffsetX;
+			switch (metricPos) {
+				case LEFT -> {
+					anchorX = textAreaX + areaW - 1;
+					drawOffsetX = -w;
+				}
+				case RIGHT -> {
+					anchorX = textAreaX + 1;
+					drawOffsetX = 0;
+				}
+				case ABOVE, BELOW -> {
+					anchorX = textAreaX + (areaW / 2.0f);
+					drawOffsetX = -w / 2;
+				}
+				default -> {
+					anchorX = textAreaX + (areaW / 2.0f);
+					drawOffsetX = -w / 2;
+				}
+			}
+
+			pose.pushMatrix();
+			try {
+				pose.translate(anchorX, textY);
+				pose.scale(textScale, textScale);
+				graphics.drawString(font, line.text(), drawOffsetX, 0, line.color(), true);
+			} finally {
+				pose.popMatrix();
+			}
+			textY += HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT;
+		}
+	}
+
+	private static void drawWarningIndicator(
+			GuiGraphics graphics,
+			int x,
+			int y,
+			int w,
+			int h,
+			DurabilityFormatter.WarningBlinkState blink,
+			float moduleAlpha
+	) {
+		if (w <= 2 || h <= 2) {
+			return;
+		}
+		float warnAlpha = Math.max(0.0f, Math.min(1.0f, blink.indicatorAlpha() * moduleAlpha));
+		int outlineColor = ARGB.color(warnAlpha, blink.indicatorRgb());
+		graphics.renderOutline(x, y, w, h, outlineColor);
+
+		if (w >= 8 && h >= 8) {
+			int cornerRgb = blink.highPhase() ? 0xFFE066 : blink.indicatorRgb();
+			int badgeColor = ARGB.color(warnAlpha, cornerRgb);
+			graphics.fill(x + w - 4, y + 1, x + w - 1, y + 4, badgeColor);
+		}
+	}
+
+	private static void drawContinuousOuterFrame(
+			GuiGraphics graphics,
+			ArmorVisualStyle style,
+			int x,
+			int y,
+			int w,
+			int h,
+			float alpha
+	) {
+		ArmorVisualStyle safeStyle = style != null ? style : ArmorVisualStyle.VANILLA_HOTBAR;
+		switch (safeStyle) {
+			case VANILLA_HOTBAR -> {
+				graphics.fill(x + 1, y + 1, x + w - 1, y + h - 1, ARGB.colorFromFloat(0.62f * alpha, 0.08f, 0.09f, 0.12f));
+				graphics.renderOutline(x, y, w, h, ARGB.colorFromFloat(0.85f * alpha, 0.36f, 0.39f, 0.44f));
+				if (w > 2 && h > 2) {
+					graphics.renderOutline(x + 1, y + 1, w - 2, h - 2, ARGB.colorFromFloat(0.45f * alpha, 0.12f, 0.14f, 0.18f));
+				}
+			}
+			case INVENTORY_SLOT -> {
+				graphics.fill(x + 1, y + 1, x + w - 1, y + h - 1, ARGB.colorFromFloat(0.75f * alpha, 0.545f, 0.545f, 0.545f));
+				int darkBevel = ARGB.colorFromFloat(0.92f * alpha, 0.215f, 0.215f, 0.215f);
+				int lightBevel = ARGB.colorFromFloat(0.92f * alpha, 0.96f, 0.96f, 0.96f);
+				graphics.fill(x, y, x + w - 1, y + 1, darkBevel);
+				graphics.fill(x, y, x + 1, y + h - 1, darkBevel);
+				graphics.fill(x + 1, y + h - 1, x + w, y + h, lightBevel);
+				graphics.fill(x + w - 1, y + 1, x + w, y + h, lightBevel);
+			}
+			case MINIMAL -> {
+				graphics.fill(x, y, x + w, y + h, ARGB.colorFromFloat(0.45f * alpha, 0.08f, 0.10f, 0.14f));
+				graphics.renderOutline(x, y, w, h, ARGB.colorFromFloat(0.65f * alpha, 0.45f, 0.52f, 0.64f));
+			}
+			case BORDERLESS -> graphics.renderOutline(x, y, w, h, ARGB.colorFromFloat(0.65f * alpha, 0.45f, 0.52f, 0.64f));
 		}
 	}
 
