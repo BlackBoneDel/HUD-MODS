@@ -133,7 +133,10 @@ class EffectsFormattingAndOrderTest {
 		// Disabled override preserves hex in map, but falls back to default title/duration colors
 		assertEquals(OptionalInt.empty(), EffectsColorResolver.resolveCustomRgb("examplemod:mana_regen", config));
 		assertEquals(EffectsColorResolver.DEFAULT_TITLE_COLOR_ARGB, EffectsColorResolver.titleColorArgb(modded, config));
+		assertEquals(0xFFD8DEE9, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
+		config.colorDurationByRemaining = true;
 		assertEquals(0xFFE6EDF3, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
+		assertEquals(0xFFFF66B2, EffectsColorResolver.durationColorArgb(regen, config, 20.0f));
 
 		// Icons remain pure white untinted (alpha only) regardless of custom text color
 		assertEquals(0xFFFFFFFF, EffectsColorResolver.iconTintArgb(1.0f));
