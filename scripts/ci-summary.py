@@ -201,6 +201,8 @@ def main() -> int:
             f"errors={totals['errors']}",
             f"skipped={totals['skipped']}",
         ]
+        if failed_cases:
+            notice_parts.append("failed=" + " | ".join(failed_cases)[:1500])
         if build_info:
             notice_parts.append(f"jar={build_info.get('artifact_name')}")
             notice_parts.append(f"size={build_info.get('artifact_size_bytes')}")
