@@ -120,7 +120,7 @@ class EffectsFormattingAndOrderTest {
 				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 120, false, false, true, true, 0xCD5CAB
 		);
 		EffectSnapshot modded = new EffectSnapshot(
-				"examplemod:mana_regen", "Mana Regen", EffectCategoryKind.BENEFICIAL, 1, 600, false, false, true, true, 0x3366FF
+				"examplemod:mana_regen", "Mana Regen", EffectCategoryKind.BENEFICIAL, 1, 800, false, false, true, true, 0x3366FF
 		);
 
 		config.customEffectColors.put("minecraft:regeneration", new EffectColorOverride(true, "#FF66B2"));
