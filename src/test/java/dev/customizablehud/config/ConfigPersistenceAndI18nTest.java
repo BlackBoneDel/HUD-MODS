@@ -5,9 +5,11 @@ import com.google.gson.JsonParser;
 import dev.customizablehud.format.ModTranslations;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Enumeration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -233,14 +235,23 @@ class ConfigPersistenceAndI18nTest {
 
 	@Test
 	void enforcesHudUtilsBrandingEnglishSpanishParityAndFallbackResolution() throws Exception {
-		// Verify fabric.mod.json metadata carries Hud Utils / Denvdrite while preserving customizablehud ID
-		try (InputStream fmodStream = ConfigPersistenceAndI18nTest.class.getResourceAsStream("/fabric.mod.json")) {
-			assertNotNull(fmodStream, "fabric.mod.json must be present on test classpath");
-			JsonObject fmod = JsonParser.parseString(new String(fmodStream.readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
-			assertEquals("customizablehud", fmod.get("id").getAsString());
-			assertEquals("Hud Utils", fmod.get("name").getAsString());
-			assertTrue(fmod.getAsJsonArray("authors").toString().contains("Denvdrite"));
+		// Verify our module's fabric.mod.json on the test classpath carries Hud Utils / Denvdrite with customizablehud ID
+		JsonObject ownFmod = null;
+		Enumeration<URL> fmodResources = ConfigPersistenceAndI18nTest.class.getClassLoader().getResources("fabric.mod.json");
+		while (fmodResources.hasMoreElements()) {
+			URL url = fmodResources.nextElement();
+			try (InputStream stream = url.openStream()) {
+				JsonObject parsed = JsonParser.parseString(new String(stream.readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
+				if (parsed.has("id") && "customizablehud".equals(parsed.get("id").getAsString())) {
+					ownFmod = parsed;
+					break;
+				}
+			}
 		}
+		assertNotNull(ownFmod, "customizablehud fabric.mod.json must be present on test classpath");
+		assertEquals("customizablehud", ownFmod.get("id").getAsString());
+		assertEquals("Hud Utils", ownFmod.get("name").getAsString());
+		assertTrue(ownFmod.getAsJsonArray("authors").toString().contains("Denvdrite"));
 
 		Map<String, String> en = ModTranslations.getBundledTranslations(ModLanguage.ENGLISH);
 		Map<String, String> es = ModTranslations.getBundledTranslations(ModLanguage.SPANISH);
