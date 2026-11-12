@@ -1,0 +1,98 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions@v6.4.1
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # actions/setup-java@v6.2.0
+        with:
+          java-version-file: '.java-version'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions@v6.4.1
+
+      - name: Run static repository validations
+        run: python3 scripts/validate-repo.py
+
+      - name: Package source ZIP
+        run: python3 scripts/package-source.py
+
+      - name: Resolve exact remapped JAR path
+        id: artifact_meta
+        shell: bash
+        run: |
+          BASE_NAME="$(grep -E '^archives_base_name=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          MOD_VER="$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          JAR_NAME="${BASE_NAME}-${MOD_VER}.jar"
+          echo "jar_name=${JAR_NAME}" >> "$GITHUB_OUTPUT"
+          echo "jar_path=build/libs/${JAR_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run tests and build
+        id: gradle_build
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon clean test build 2>&1 | tee "${RUNNER_TEMP}/gradle-output.log"
+
+      - name: Emit failure summary annotation if Gradle failed
+        if: failure() && steps.gradle_build.outcome == 'failure'
+        shell: bash
+        run: python3 scripts/ci-summary.py --emit-failure-annotation
+
+      - name: Validate remapped mod JAR and write checksums
+        run: python3 scripts/validate-jar.py
+
+      - name: Publish test and build summary
+        if: always()
+        run: python3 scripts/ci-summary.py
+
+      - name: Upload mod JAR, SHA-256 and build metadata
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-mod-jar
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ${{ steps.artifact_meta.outputs.jar_path }}
+            build/release-meta/${{ steps.artifact_meta.outputs.jar_name }}.sha256
+            build/release-meta/build-info.txt
+
+      - name: Upload source ZIP
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-source-zip
+          retention-days: 30
+          if-no-files-found: ignore
+          path: dist/hud-utils-source.zip
+
+      - name: Upload test and Gradle reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-test-reports
+          retention-days: 30
+          if-no-files-found: ignore
+          path: |
+            build/reports/
+            build/test-results/

@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "customizablehud",
+	"version": "${version}",
+	"name": "Hud Utils",
+	"description": "Lightweight, purely informational client-side Armor HUD and Effects HUD with native config screens and a live drag-and-drop HUD editor.",
+	"authors": [
+		"Denvdrite"
+	],
+	"contact": {
+		"sources": "https://github.com/BlackBoneDel/HUD-MODS"
+	},
+	"license": "MIT",
+	"icon": "assets/customizablehud/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"dev.customizablehud.client.CustomizableHudClient"
+		],
+		"modmenu": [
+			"dev.customizablehud.client.compat.ModMenuIntegration"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": ">=17.0.0"
+	}
+}
