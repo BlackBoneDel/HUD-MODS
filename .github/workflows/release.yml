@@ -1,0 +1,180 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions@v6.4.1
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # actions/setup-java@v6.2.0
+        with:
+          java-version-file: '.java-version'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # gradle/actions@v6.4.1
+
+      - name: Verify version and tag synchronization
+        id: release_meta
+        shell: bash
+        run: |
+          BASE_NAME="$(grep -E '^archives_base_name=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          MOD_VER="$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          MC_VER="$(grep -E '^minecraft_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          LOADER_VER="$(grep -E '^loader_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          FAPI_VER="$(grep -E '^fabric_api_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          MODMENU_VER="$(grep -E '^modmenu_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+          EXPECTED_TAG="v${MOD_VER}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' does not match gradle.properties version '${EXPECTED_TAG}'"
+            exit 1
+          fi
+          JAR_NAME="${BASE_NAME}-${MOD_VER}.jar"
+          echo "tag_name=${EXPECTED_TAG}" >> "$GITHUB_OUTPUT"
+          echo "mod_version=${MOD_VER}" >> "$GITHUB_OUTPUT"
+          echo "mc_version=${MC_VER}" >> "$GITHUB_OUTPUT"
+          echo "loader_version=${LOADER_VER}" >> "$GITHUB_OUTPUT"
+          echo "fapi_version=${FAPI_VER}" >> "$GITHUB_OUTPUT"
+          echo "modmenu_version=${MODMENU_VER}" >> "$GITHUB_OUTPUT"
+          echo "jar_name=${JAR_NAME}" >> "$GITHUB_OUTPUT"
+          echo "jar_path=build/libs/${JAR_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Run static repository validations
+        run: python3 scripts/validate-repo.py
+
+      - name: Package source ZIP
+        run: python3 scripts/package-source.py
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run tests and build
+        id: gradle_build
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon clean test build 2>&1 | tee "${RUNNER_TEMP}/gradle-output.log"
+
+      - name: Emit failure summary annotation if Gradle failed
+        if: failure() && steps.gradle_build.outcome == 'failure'
+        shell: bash
+        run: python3 scripts/ci-summary.py --emit-failure-annotation
+
+      - name: Validate remapped mod JAR and write checksums
+        run: python3 scripts/validate-jar.py
+
+      - name: Publish test and build summary
+        if: always()
+        run: python3 scripts/ci-summary.py
+
+      - name: Prepare GitHub prerelease notes
+        env:
+          MOD_VER: ${{ steps.release_meta.outputs.mod_version }}
+          MC_VER: ${{ steps.release_meta.outputs.mc_version }}
+          LOADER_VER: ${{ steps.release_meta.outputs.loader_version }}
+          FAPI_VER: ${{ steps.release_meta.outputs.fapi_version }}
+          MODMENU_VER: ${{ steps.release_meta.outputs.modmenu_version }}
+          JAR_NAME: ${{ steps.release_meta.outputs.jar_name }}
+        shell: bash
+        run: |
+          JAR_SHA256="$(cut -d' ' -f1 "build/release-meta/${JAR_NAME}.sha256")"
+          COMMIT_SHA="$(git rev-parse HEAD)"
+          export JAR_SHA256 COMMIT_SHA
+          python3 - <<'PY'
+          import os, textwrap
+          from pathlib import Path
+
+          notes = textwrap.dedent(f"""\
+          # Hud Utils `{os.environ["MOD_VER"]}` (First Public Alpha / Primera alpha pública)
+
+          Client-side informational HUD mod for **Minecraft Java Edition {os.environ["MC_VER"]}** (Fabric) by **Denvdrite** (`customizablehud`).
+
+          ## Highlights
+          - **Armor HUD**: compact `20x20` hotbar-style contiguous slots (`Helmet → Chestplate → Leggings → Boots`), real durability points, independent number scale (`0.50x–2.00x`), configurable 4-tier color thresholds (`>95%`, `>60%`, `>20%`, `<=20%`), low-durability `!` badge at `<=10%`, and optional `Near Hotbar: Left/Right` quick buttons.
+          - **Effects HUD**: default `CENTER_RIGHT` placement without background box, localized effect names & timers, level I hidden and higher levels in Roman numerals, per-effect color picker (`MobEffect.getColor()` auto fallback + custom hex overrides), and optional compact **PotionHUD** (`Normal` / `Mini`, timer or real-tick duration bar).
+          - **Config & Editor**: native EN/ES UI with live HUD drag-and-drop editor, optional Mod Menu integration, compatible `config/customizablehud.json` persistence (`schemaVersion = 4`), strictly read-only with zero inventory features.
+
+          ## Verified Compatibility & Artifacts
+          - **Minecraft**: `{os.environ["MC_VER"]}`
+          - **Fabric Loader**: `>={os.environ["LOADER_VER"]}`
+          - **Fabric API**: `{os.environ["FAPI_VER"]}` (required)
+          - **Java**: `>=21`
+          - **Mod Menu** *(optional)*: `>={os.environ["MODMENU_VER"]}`
+          - **Commit**: `{os.environ["COMMIT_SHA"]}`
+          - **Production JAR**: `{os.environ["JAR_NAME"]}`
+          - **SHA-256**: `{os.environ["JAR_SHA256"]}`
+
+          > **Manual In-Game QA**: Automated JUnit 5 tests and JAR validation passed in CI; manual Minecraft client checks in `docs/MANUAL-QA.md` remain `NOT RUN`.
+          """)
+          Path("build/release-meta/release-notes.md").write_text(notes, encoding="utf-8")
+          PY
+
+      - name: Upload mod JAR, SHA-256 and build metadata
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-mod-jar
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            ${{ steps.release_meta.outputs.jar_path }}
+            build/release-meta/${{ steps.release_meta.outputs.jar_name }}.sha256
+            build/release-meta/build-info.txt
+
+      - name: Upload source ZIP
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-source-zip
+          retention-days: 30
+          if-no-files-found: ignore
+          path: dist/hud-utils-source.zip
+
+      - name: Upload test and Gradle reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # actions/upload-artifact@v7.0.2
+        with:
+          name: hud-utils-test-reports
+          retention-days: 30
+          if-no-files-found: ignore
+          path: |
+            build/reports/
+            build/test-results/
+
+      - name: Create or update GitHub Prerelease
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG_NAME="${{ steps.release_meta.outputs.tag_name }}"
+          MOD_VER="${{ steps.release_meta.outputs.mod_version }}"
+          JAR_PATH="${{ steps.release_meta.outputs.jar_path }}"
+          JAR_NAME="${{ steps.release_meta.outputs.jar_name }}"
+          SHA_PATH="build/release-meta/${JAR_NAME}.sha256"
+          INFO_PATH="build/release-meta/build-info.txt"
+          NOTES_PATH="build/release-meta/release-notes.md"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$JAR_PATH" "$SHA_PATH" "$INFO_PATH" --clobber
+            gh release edit "$TAG_NAME" --prerelease --title "Hud Utils ${MOD_VER}" --notes-file "$NOTES_PATH"
+          else
+            gh release create "$TAG_NAME" "$JAR_PATH" "$SHA_PATH" "$INFO_PATH" \
+              --prerelease \
+              --title "Hud Utils ${MOD_VER}" \
+              --notes-file "$NOTES_PATH"
+          fi

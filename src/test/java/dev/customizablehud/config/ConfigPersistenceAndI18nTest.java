@@ -251,6 +251,7 @@ class ConfigPersistenceAndI18nTest {
 		assertNotNull(ownFmod, "customizablehud fabric.mod.json must be present on test classpath");
 		assertEquals("customizablehud", ownFmod.get("id").getAsString());
 		assertEquals("Hud Utils", ownFmod.get("name").getAsString());
+		assertEquals("1.0.0-alpha.1", ownFmod.get("version").getAsString());
 		assertTrue(ownFmod.getAsJsonArray("authors").toString().contains("Denvdrite"));
 
 		Map<String, String> en = ModTranslations.getBundledTranslations(ModLanguage.ENGLISH);

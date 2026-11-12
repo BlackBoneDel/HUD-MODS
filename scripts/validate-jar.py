@@ -124,7 +124,7 @@ def validate_jar(jar_path: Path, props: dict[str, str]) -> tuple[int, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate compiled Customizable HUD mod JAR and write checksums.")
+    parser = argparse.ArgumentParser(description="Validate compiled Hud Utils mod JAR and write checksums.")
     parser.add_argument(
         "--meta-dir",
         default="build/release-meta",

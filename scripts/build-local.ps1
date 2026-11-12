@@ -64,7 +64,14 @@ if ($pythonCmd) {
     & $pythonCmd.Source scripts/validate-jar.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
-    $jarPath = Join-Path $RootDir "build\libs\hud-utils-1.0.0.jar"
+    $props = @{}
+    foreach ($line in Get-Content (Join-Path $RootDir "gradle.properties")) {
+        if ($line -match '^\s*([^#=\s]+)\s*=\s*(.+?)\s*$') {
+            $props[$Matches[1]] = $Matches[2]
+        }
+    }
+    $jarName = "$($props['archives_base_name'])-$($props['mod_version']).jar"
+    $jarPath = Join-Path $RootDir "build\libs\$jarName"
     if (-not (Test-Path $jarPath)) {
         Write-Error "ERROR: No se encontró el JAR esperado en $jarPath"
         exit 1

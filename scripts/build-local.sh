@@ -50,7 +50,9 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   python3 scripts/validate-jar.py
 else
-  JAR_PATH="build/libs/hud-utils-1.0.0.jar"
+  BASE_NAME="$(grep -E '^archives_base_name=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+  MOD_VER="$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2- | tr -d '[:space:]')"
+  JAR_PATH="build/libs/${BASE_NAME}-${MOD_VER}.jar"
   if [[ ! -f "$JAR_PATH" ]]; then
     echo "ERROR: No se encontró el JAR esperado en $JAR_PATH"
     exit 1
