@@ -10,6 +10,8 @@ import dev.customizablehud.config.EffectsVisualStyle;
 import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudOrientation;
 import dev.customizablehud.config.PointOffset;
+import dev.customizablehud.config.PotionHudMode;
+import dev.customizablehud.config.PotionMiniDisplayMode;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -17,10 +19,14 @@ import java.util.Map;
 
 public final class HudLayoutEngine {
 	public static final float HORIZONTAL_ARMOR_TEXT_SCALE = 0.72f;
+	public static final float BASE_ARMOR_NUMBER_SCALE = 0.75f;
 	public static final int ARMOR_TEXT_LINE_HEIGHT = 8;
 	public static final int ARMOR_TEXT_ICON_GAP = 2;
 	public static final int HAND_SEPARATOR_GAP = 6;
 	public static final int UNSCALED_LINE_HEIGHT = 9;
+	public static final int ALERT_BADGE_WIDTH = 7;
+	public static final int ALERT_BADGE_HEIGHT = 8;
+	public static final int ALERT_BADGE_GAP = 1;
 	private static final int SNAP_THRESHOLD = 4;
 
 	private HudLayoutEngine() {
@@ -42,6 +48,11 @@ public final class HudLayoutEngine {
 	}
 
 	public record SnapResult(int x, int y, List<GuideLine> guides) {
+	}
+
+	public static float effectiveArmorNumberScale(ArmorConfig config) {
+		float numberScale = config != null ? ConfigValidator.clampNumberScale(config.numberScale) : 1.0f;
+		return BASE_ARMOR_NUMBER_SCALE * numberScale;
 	}
 
 	public static int slotBoxSizeFor(ArmorVisualStyle style) {
@@ -69,6 +80,18 @@ public final class HudLayoutEngine {
 
 	public static HudRect vanillaOffhandLeftRect(int screenWidth, int screenHeight) {
 		return new HudRect(screenWidth / 2 - 120, screenHeight - 23, 22, 22);
+	}
+
+	public static HudRect vanillaOffhandRightRect(int screenWidth, int screenHeight) {
+		return new HudRect(screenWidth / 2 + 98, screenHeight - 23, 22, 22);
+	}
+
+	public static HudRect vanillaAttackIndicatorLeftRect(int screenWidth, int screenHeight) {
+		return new HudRect(screenWidth / 2 - 115, screenHeight - 20, 18, 18);
+	}
+
+	public static HudRect vanillaAttackIndicatorRightRect(int screenWidth, int screenHeight) {
+		return new HudRect(screenWidth / 2 + 97, screenHeight - 20, 18, 18);
 	}
 
 	public static HudRect resolveAnchorRect(
@@ -142,6 +165,7 @@ public final class HudLayoutEngine {
 	) {
 		ArmorConfig safeConfig = config != null ? config : new ArmorConfig();
 		float scale = ConfigValidator.clampScale(safeConfig.scale);
+		float numberTextScale = effectiveArmorNumberScale(safeConfig);
 		int boxSize = safeConfig.showIcon ? slotBoxSizeFor(safeConfig.style) : 0;
 		int configuredSpacing = ConfigValidator.clampInt(
 				safeConfig.slotSpacing,
@@ -173,24 +197,37 @@ public final class HudLayoutEngine {
 			return new ArmorLayoutResult(emptyOrigin.x(), emptyOrigin.y(), 0, 0, scale, emptyOrigin, List.of());
 		}
 
-		record RawMetric(ArmorSlotMetric metric, int scaledTextW, int rawTextH) {
+		record RawMetric(
+				ArmorSlotMetric metric,
+				int scaledTextW,
+				int rawTextH,
+				int numberLineHeight,
+				boolean alertActive
+		) {
 		}
 
 		List<RawMetric> rawMetrics = new ArrayList<>(visible.size());
-		int maxRowTextH = 0;
-		int maxColTextW = 0;
+		int maxRowStackH = 0;
+		int maxColSideW = 0;
 		for (ArmorSlotMetric metric : visible) {
 			boolean hasName = safeConfig.shouldShowNameFor(metric.kind()) && metric.nameWidth() > 0;
 			boolean hasLabel = metric.labelWidth() > 0;
-			int lineCount = (hasName ? 1 : 0) + (hasLabel ? 1 : 0);
-			int rawTextH = lineCount > 0 ? lineCount * ARMOR_TEXT_LINE_HEIGHT : 0;
-			maxRowTextH = Math.max(maxRowTextH, rawTextH);
+			int fontLineH = Math.max(5, metric.fontLineHeight());
+			int numLineH = hasLabel ? Math.max(5, (int) Math.ceil(fontLineH * numberTextScale) + 1) : 0;
+			int nameLineH = hasName ? ARMOR_TEXT_LINE_HEIGHT : 0;
+			int rawTextH = numLineH + nameLineH;
 
-			int maxRawTextW = Math.max(hasName ? metric.nameWidth() : 0, hasLabel ? metric.labelWidth() : 0);
-			int scaledTextW = maxRawTextW > 0 ? (int) Math.ceil(maxRawTextW * HORIZONTAL_ARMOR_TEXT_SCALE) + 2 : 0;
-			maxColTextW = Math.max(maxColTextW, scaledTextW);
+			boolean alertActive = safeConfig.showLowDurabilityAlert && metric.alertActive();
+			int alertH = alertActive ? (ALERT_BADGE_HEIGHT + ALERT_BADGE_GAP) : 0;
+			maxRowStackH = Math.max(maxRowStackH, rawTextH + alertH);
 
-			rawMetrics.add(new RawMetric(metric, scaledTextW, rawTextH));
+			int scaledLabelW = hasLabel ? (int) Math.ceil(metric.labelWidth() * numberTextScale) + 1 : 0;
+			int scaledNameW = hasName ? (int) Math.ceil(metric.nameWidth() * HORIZONTAL_ARMOR_TEXT_SCALE) + 2 : 0;
+			int scaledTextW = Math.max(scaledLabelW, scaledNameW);
+			int alertW = alertActive ? (ALERT_BADGE_WIDTH + ALERT_BADGE_GAP) : 0;
+			maxColSideW = Math.max(maxColSideW, scaledTextW + alertW);
+
+			rawMetrics.add(new RawMetric(metric, scaledTextW, rawTextH, numLineH, alertActive));
 		}
 
 		record CellSpec(
@@ -204,7 +241,11 @@ public final class HudLayoutEngine {
 				int iconOffsetY,
 				int textOffsetX,
 				int textOffsetY,
-				int textAreaWidth
+				int textAreaWidth,
+				int numberLineHeight,
+				boolean alertActive,
+				int alertOffsetX,
+				int alertOffsetY
 		) {
 		}
 
@@ -218,50 +259,85 @@ public final class HudLayoutEngine {
 			int textOffsetX;
 			int textOffsetY;
 			int textAreaWidth;
+			int alertOffsetX = 0;
+			int alertOffsetY = 0;
 
 			if (verticalSide) {
-				int effectiveTextH = (!vertical && !safeConfig.individualPositionsEnabled) ? maxRowTextH : raw.rawTextH();
-				int gap = (effectiveTextH > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
-				cellW = Math.max(boxSize, raw.scaledTextW());
+				int ownAlertH = raw.alertActive() ? (ALERT_BADGE_HEIGHT + ALERT_BADGE_GAP) : 0;
+				int effectiveAboveOrBelowH = (!vertical && !safeConfig.individualPositionsEnabled)
+						? maxRowStackH
+						: (raw.rawTextH() + ownAlertH);
+				int gap = (effectiveAboveOrBelowH > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
+				int minContentW = Math.max(raw.scaledTextW(), raw.alertActive() ? ALERT_BADGE_WIDTH : 0);
+				cellW = Math.max(boxSize, minContentW);
 				if (cellW <= 0) {
 					cellW = 16;
 				}
-				cellH = effectiveTextH + gap + boxSize;
+				cellH = effectiveAboveOrBelowH + gap + boxSize;
 				if (cellH <= 0) {
 					cellH = 14;
 				}
-				textBlockH = effectiveTextH;
+				textBlockH = effectiveAboveOrBelowH;
 				iconOffsetX = boxSize > 0 ? (cellW - boxSize) / 2 : 0;
 				textOffsetX = 0;
 				textAreaWidth = cellW;
+				alertOffsetX = boxSize > 0
+						? iconOffsetX + (boxSize - ALERT_BADGE_WIDTH) / 2
+						: (cellW - ALERT_BADGE_WIDTH) / 2;
+
 				if (metricPos == ArmorMetricPosition.ABOVE) {
-					textOffsetY = raw.rawTextH() > 0 ? Math.max(0, effectiveTextH - raw.rawTextH()) : 0;
-					iconOffsetY = boxSize > 0 ? (effectiveTextH + gap) : 0;
+					textOffsetY = raw.rawTextH() > 0 ? Math.max(0, effectiveAboveOrBelowH - raw.rawTextH()) : 0;
+					iconOffsetY = boxSize > 0 ? (effectiveAboveOrBelowH + gap) : 0;
+					if (raw.alertActive()) {
+						alertOffsetY = raw.rawTextH() > 0
+								? Math.max(0, textOffsetY - ALERT_BADGE_GAP - ALERT_BADGE_HEIGHT)
+								: Math.max(0, effectiveAboveOrBelowH - ALERT_BADGE_HEIGHT);
+					}
 				} else {
 					iconOffsetY = 0;
 					textOffsetY = boxSize > 0 ? (boxSize + gap) : 0;
+					if (raw.alertActive()) {
+						alertOffsetY = raw.rawTextH() > 0
+								? textOffsetY + raw.rawTextH() + ALERT_BADGE_GAP
+								: textOffsetY;
+					}
 				}
 			} else {
-				int effectiveTextW = (vertical && !safeConfig.individualPositionsEnabled) ? maxColTextW : raw.scaledTextW();
-				int gap = (effectiveTextW > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
-				cellW = effectiveTextW + gap + boxSize;
+				int ownAlertW = raw.alertActive() ? (ALERT_BADGE_WIDTH + ALERT_BADGE_GAP) : 0;
+				int effectiveSideW = (vertical && !safeConfig.individualPositionsEnabled)
+						? maxColSideW
+						: (raw.scaledTextW() + ownAlertW);
+				int gap = (effectiveSideW > 0 && boxSize > 0) ? ARMOR_TEXT_ICON_GAP : 0;
+				cellW = effectiveSideW + gap + boxSize;
 				if (cellW <= 0) {
 					cellW = 16;
 				}
-				cellH = Math.max(boxSize, raw.rawTextH());
+				int minAlertH = raw.alertActive() ? ALERT_BADGE_HEIGHT : 0;
+				cellH = Math.max(Math.max(boxSize, raw.rawTextH()), minAlertH);
 				if (cellH <= 0) {
 					cellH = 14;
 				}
 				textBlockH = raw.rawTextH();
 				iconOffsetY = boxSize > 0 ? (cellH - boxSize) / 2 : 0;
 				textOffsetY = raw.rawTextH() > 0 ? Math.max(0, (cellH - raw.rawTextH()) / 2) : 0;
-				textAreaWidth = effectiveTextW;
+				alertOffsetY = Math.max(0, (cellH - ALERT_BADGE_HEIGHT) / 2);
+				textAreaWidth = raw.scaledTextW();
 				if (metricPos == ArmorMetricPosition.LEFT) {
-					textOffsetX = 0;
-					iconOffsetX = boxSize > 0 ? (effectiveTextW + gap) : 0;
+					textOffsetX = Math.max(0, effectiveSideW - raw.scaledTextW());
+					iconOffsetX = boxSize > 0 ? (effectiveSideW + gap) : 0;
+					if (raw.alertActive()) {
+						alertOffsetX = raw.scaledTextW() > 0
+								? Math.max(0, textOffsetX - ALERT_BADGE_GAP - ALERT_BADGE_WIDTH)
+								: Math.max(0, effectiveSideW - ALERT_BADGE_WIDTH);
+					}
 				} else {
 					iconOffsetX = 0;
 					textOffsetX = boxSize > 0 ? (boxSize + gap) : 0;
+					if (raw.alertActive()) {
+						alertOffsetX = raw.scaledTextW() > 0
+								? textOffsetX + raw.scaledTextW() + ALERT_BADGE_GAP
+								: textOffsetX;
+					}
 				}
 			}
 
@@ -276,7 +352,11 @@ public final class HudLayoutEngine {
 					iconOffsetY,
 					textOffsetX,
 					textOffsetY,
-					textAreaWidth
+					textAreaWidth,
+					raw.numberLineHeight(),
+					raw.alertActive(),
+					alertOffsetX,
+					alertOffsetY
 			));
 		}
 
@@ -344,6 +424,11 @@ public final class HudLayoutEngine {
 						cell.textOffsetX(),
 						cell.textOffsetY(),
 						cell.textAreaWidth(),
+						numberTextScale,
+						cell.numberLineHeight(),
+						cell.alertActive(),
+						cell.alertOffsetX(),
+						cell.alertOffsetY(),
 						metricPos,
 						slotRect
 				));
@@ -380,7 +465,6 @@ public final class HudLayoutEngine {
 					}
 					xs[i] = Math.max(xs[i - 1] + handExtra, Math.max(candidateByIcon, candidateByText));
 				} else {
-					// LEFT/RIGHT in horizontal row places text directly alongside icons on the same Y band
 					boolean eitherHasText = prev.actualTextW() > 0 || curr.actualTextW() > 0;
 					int stepX = eitherHasText
 							? prev.w() + handExtra
@@ -403,7 +487,6 @@ public final class HudLayoutEngine {
 					}
 					ys[i] = Math.max(ys[i - 1] + handExtra, Math.max(candidateByIcon, candidateByText));
 				} else {
-					// ABOVE/BELOW in vertical column places text directly between vertical icons
 					boolean textBetween = (metricPos == ArmorMetricPosition.BELOW && prev.rawTextH() > 0)
 							|| (metricPos == ArmorMetricPosition.ABOVE && curr.rawTextH() > 0);
 					int stepY = textBetween
@@ -461,6 +544,11 @@ public final class HudLayoutEngine {
 					cell.textOffsetX(),
 					cell.textOffsetY(),
 					cell.textAreaWidth(),
+					numberTextScale,
+					cell.numberLineHeight(),
+					cell.alertActive(),
+					cell.alertOffsetX(),
+					cell.alertOffsetY(),
 					metricPos,
 					new HudRect(sx, sy, sw, sh)
 			));
@@ -555,15 +643,22 @@ public final class HudLayoutEngine {
 		int spacing = ConfigValidator.clampInt(safeConfig.rowSpacing, ConfigValidator.MIN_SPACING, ConfigValidator.MAX_SPACING);
 		boolean vertical = safeConfig.orientation != HudOrientation.HORIZONTAL;
 		EffectsVisualStyle style = safeConfig.style != null ? safeConfig.style : EffectsVisualStyle.MINECRAFT_COMPACT;
+		PotionHudMode potionMode = safeConfig.potionHudMode != null ? safeConfig.potionHudMode : PotionHudMode.NORMAL;
+		PotionMiniDisplayMode miniDisplay = safeConfig.potionMiniDisplay != null ? safeConfig.potionMiniDisplay : PotionMiniDisplayMode.TIMER_TEXT;
 
 		if (metrics == null || metrics.isEmpty()) {
 			HudRect emptyOrigin = resolveAnchorRect(safeConfig.anchor, safeConfig.offsetX, safeConfig.offsetY, 0, 0, screenWidth, screenHeight);
 			return new EffectsLayoutResult(emptyOrigin.x(), emptyOrigin.y(), 0, 0, scale, emptyOrigin, List.of());
 		}
 
-		int iconBox = safeConfig.showIcon ? (style == EffectsVisualStyle.MINIMAL_TEXT ? 14 : 20) : 0;
-		int padX = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 4;
-		int padY = style == EffectsVisualStyle.MINIMAL_TEXT ? 2 : 3;
+		boolean isPotionMini = style == EffectsVisualStyle.POTION_HUD && potionMode == PotionHudMode.MINI;
+		boolean isPotionNormal = style == EffectsVisualStyle.POTION_HUD && potionMode == PotionHudMode.NORMAL;
+
+		int iconBox = safeConfig.showIcon
+				? (style == EffectsVisualStyle.MINIMAL_TEXT ? 14 : (isPotionMini ? 16 : (isPotionNormal ? 18 : 20)))
+				: 0;
+		int padX = (style == EffectsVisualStyle.MINIMAL_TEXT || isPotionMini) ? 2 : (isPotionNormal ? 3 : 4);
+		int padY = (style == EffectsVisualStyle.MINIMAL_TEXT || isPotionMini) ? 2 : 3;
 
 		record RowSize(int w, int h) {
 		}
@@ -577,20 +672,43 @@ public final class HudLayoutEngine {
 			boolean hasTitle = metric.titleWidth() > 0;
 			boolean hasDuration = metric.durationWidth() > 0;
 
-			int textW;
-			int textH;
-			if (style == EffectsVisualStyle.MINIMAL_TEXT) {
+			int rowW;
+			int rowH;
+			if (isPotionMini) {
+				int bottomW = 0;
+				int bottomH = 0;
+				if (safeConfig.showDuration) {
+					if (miniDisplay == PotionMiniDisplayMode.DURATION_BAR) {
+						bottomW = 20;
+						bottomH = 4;
+					} else if (hasDuration) {
+						bottomW = (int) Math.ceil(metric.durationWidth() * 0.78f) + 2;
+						bottomH = 7;
+					}
+				}
+				int levelW = (!safeConfig.showIcon && metric.miniLevelWidth() > 0)
+						? (int) Math.ceil(metric.miniLevelWidth() * 0.78f) + 2
+						: 0;
+				int topH = iconBox > 0 ? iconBox : (levelW > 0 ? 8 : 0);
+				int contentW = Math.max(Math.max(iconBox, levelW), bottomW);
+				int gap = (topH > 0 && bottomH > 0) ? 2 : 0;
+				rowW = Math.max(22, padX * 2 + contentW);
+				rowH = Math.max(16, padY * 2 + topH + gap + bottomH);
+			} else if (style == EffectsVisualStyle.MINIMAL_TEXT) {
 				int gap = (hasTitle && hasDuration) ? 6 : 0;
-				textW = metric.titleWidth() + gap + metric.durationWidth();
-				textH = (hasTitle || hasDuration) ? UNSCALED_LINE_HEIGHT : 0;
+				int textW = metric.titleWidth() + gap + metric.durationWidth();
+				int textH = (hasTitle || hasDuration) ? UNSCALED_LINE_HEIGHT : 0;
+				rowW = padX * 2 + iconBox + (iconBox > 0 && textW > 0 ? 4 : 0) + textW;
+				rowH = Math.max(iconBox + padY * 2, textH + padY * 2);
 			} else {
-				textW = Math.max(metric.titleWidth(), metric.durationWidth());
+				int textW = Math.max(metric.titleWidth(), metric.durationWidth());
 				int lines = (hasTitle ? 1 : 0) + (hasDuration ? 1 : 0);
-				textH = lines == 2 ? (UNSCALED_LINE_HEIGHT * 2 + 1) : (lines == 1 ? UNSCALED_LINE_HEIGHT : 0);
+				int textH = lines == 2 ? (UNSCALED_LINE_HEIGHT * 2 + 1) : (lines == 1 ? UNSCALED_LINE_HEIGHT : 0);
+				int accentExtra = isPotionNormal ? 2 : 0;
+				rowW = padX * 2 + accentExtra + iconBox + (iconBox > 0 && textW > 0 ? 4 : 0) + textW;
+				rowH = Math.max(iconBox + padY * 2, textH + padY * 2);
 			}
 
-			int rowW = padX * 2 + iconBox + (iconBox > 0 && textW > 0 ? 4 : 0) + textW;
-			int rowH = Math.max(iconBox + padY * 2, textH + padY * 2);
 			if (rowW < 18) {
 				rowW = 18;
 			}
@@ -628,15 +746,16 @@ public final class HudLayoutEngine {
 		int cursorY = 0;
 		for (int i = 0; i < sizes.size(); i++) {
 			RowSize size = sizes.get(i);
-			int rowW = vertical ? maxRowW : size.w();
+			int rowW = (vertical && !isPotionMini) ? maxRowW : size.w();
 			int rowH = size.h();
-			int sx = originRect.x() + Math.round(cursorX * scale);
+			int drawOffsetX = (vertical && isPotionMini && maxRowW > rowW) ? (maxRowW - rowW) / 2 : 0;
+			int sx = originRect.x() + Math.round((cursorX + drawOffsetX) * scale);
 			int sy = originRect.y() + Math.round(cursorY * scale);
 			int sw = Math.max(1, Math.round(rowW * scale));
 			int sh = Math.max(1, Math.round(rowH * scale));
 			placements.add(new EffectRowPlacement(
 					i,
-					cursorX,
+					cursorX + drawOffsetX,
 					cursorY,
 					rowW,
 					rowH,

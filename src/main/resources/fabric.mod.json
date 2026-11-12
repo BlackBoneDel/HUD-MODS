@@ -2,10 +2,10 @@
 	"schemaVersion": 1,
 	"id": "customizablehud",
 	"version": "${version}",
-	"name": "Customizable HUD",
+	"name": "Hud Utils",
 	"description": "Lightweight, purely informational client-side Armor HUD and Effects HUD with native config screens and a live drag-and-drop HUD editor.",
 	"authors": [
-		"Customizable HUD Contributors"
+		"Denvdrite"
 	],
 	"contact": {
 		"sources": "https://github.com/BlackBoneDel/HUD-MODS"

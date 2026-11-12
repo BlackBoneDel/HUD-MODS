@@ -56,7 +56,7 @@ public final class PresetCatalog {
 
 				EffectsConfig effects = new EffectsConfig();
 				effects.enabled = true;
-				effects.anchor = HudAnchor.TOP_LEFT;
+				effects.anchor = HudAnchor.CENTER_RIGHT;
 				effects.orientation = HudOrientation.VERTICAL;
 				effects.style = EffectsVisualStyle.MINIMAL_TEXT;
 				effects.rowSpacing = 1;
@@ -89,16 +89,19 @@ public final class PresetCatalog {
 				armor.showItemName = true;
 				armor.showHandItemName = false;
 				armor.colorByDurability = true;
-				armor.lowDurabilityWarning = true;
+				armor.veryHighThresholdPercent = 95;
 				armor.criticalThresholdPercent = 20;
 				armor.warningThresholdPercent = 60;
+				armor.showLowDurabilityAlert = true;
+				armor.lowDurabilityAlertThresholdPercent = 10;
+				armor.lowDurabilityWarning = false;
 				armor.showMainHand = false;
 				armor.showOffHand = true;
 				target.armor = armor;
 
 				EffectsConfig effects = new EffectsConfig();
 				effects.enabled = true;
-				effects.anchor = HudAnchor.TOP_LEFT;
+				effects.anchor = HudAnchor.CENTER_RIGHT;
 				effects.orientation = HudOrientation.VERTICAL;
 				effects.style = EffectsVisualStyle.CLEAN_CARD;
 				effects.rowSpacing = 3;

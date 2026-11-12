@@ -98,6 +98,11 @@ def validate_jar(jar_path: Path, props: dict[str, str]) -> tuple[int, str]:
 
         if fmod.get("id") != "customizablehud":
             raise RuntimeError(f"Expected mod id 'customizablehud' in JAR metadata, got {fmod.get('id')!r}")
+        if fmod.get("name") != "Hud Utils":
+            raise RuntimeError(f"Expected mod name 'Hud Utils' in JAR metadata, got {fmod.get('name')!r}")
+        authors = fmod.get("authors") or []
+        if "Denvdrite" not in authors:
+            raise RuntimeError(f"Expected author 'Denvdrite' in JAR metadata, got {authors!r}")
         if fmod.get("environment") != "client":
             raise RuntimeError(f"Expected client environment in JAR metadata, got {fmod.get('environment')!r}")
 
@@ -149,6 +154,8 @@ def main() -> int:
         f"artifact_size_bytes={size_bytes}",
         f"artifact_sha256={sha256}",
         f"mod_id=customizablehud",
+        f"mod_name=Hud Utils",
+        f"mod_author=Denvdrite",
         f"mod_version={props.get('mod_version', 'unknown')}",
         f"minecraft_version={props.get('minecraft_version', 'unknown')}",
         f"fabric_loader_version={props.get('loader_version', 'unknown')}",

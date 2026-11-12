@@ -7,6 +7,7 @@ import dev.customizablehud.config.EffectsConfig;
 import dev.customizablehud.config.ModLanguage;
 import dev.customizablehud.format.ArmorSlotSnapshot;
 import dev.customizablehud.format.EffectCategoryKind;
+import dev.customizablehud.format.EffectDurationTracker;
 import dev.customizablehud.format.EffectOrderer;
 import dev.customizablehud.format.EffectSnapshot;
 import dev.customizablehud.format.ModTranslations;
@@ -21,7 +22,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
-import net.minecraft.util.Unit;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectCategory;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -32,6 +32,14 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 public final class LiveDataCollector {
+	private static final EffectDurationTracker LIVE_DURATION_TRACKER = new EffectDurationTracker();
+	private static final Map<String, Integer> PREVIEW_SAMPLE_PEAKS = Map.of(
+			"minecraft:regeneration#1", 1200,
+			"minecraft:speed#1", 3600,
+			"minecraft:haste#0", 1200,
+			"minecraft:weakness#0", 600
+	);
+
 	private LiveDataCollector() {
 	}
 
@@ -46,6 +54,37 @@ public final class LiveDataCollector {
 			return Math.max(1.0f, client.level.tickRateManager().tickrate());
 		}
 		return 20.0f;
+	}
+
+	public static boolean areTicksSuspended(Minecraft client) {
+		if (client != null && client.level != null) {
+			return client.level.tickRateManager().isFrozen() || !client.level.tickRateManager().runsNormally();
+		}
+		return false;
+	}
+
+	public static void clearLiveEffectTracking() {
+		LIVE_DURATION_TRACKER.clear();
+	}
+
+	public static float remainingDurationFraction(EffectSnapshot snap, boolean previewSample) {
+		if (snap == null) {
+			return 0.0f;
+		}
+		if (snap.infinite() || snap.durationTicks() < 0) {
+			return 1.0f;
+		}
+		if (snap.durationTicks() == 0) {
+			return 0.0f;
+		}
+		if (previewSample) {
+			Integer samplePeak = PREVIEW_SAMPLE_PEAKS.get(EffectDurationTracker.keyFor(snap));
+			if (samplePeak != null && samplePeak > 0) {
+				return Math.max(0.0f, Math.min(1.0f, snap.durationTicks() / (float) Math.max(samplePeak, snap.durationTicks())));
+			}
+			return 0.75f;
+		}
+		return LIVE_DURATION_TRACKER.remainingFraction(snap);
 	}
 
 	public static List<ArmorRenderEntry> collectArmorEntries(
@@ -94,22 +133,26 @@ public final class LiveDataCollector {
 			boolean previewFallback,
 			String highlightEffectId
 	) {
+		boolean ticksSuspended = areTicksSuspended(client);
 		Player player = client != null ? client.player : null;
 		if (player != null) {
 			Collection<MobEffectInstance> active = player.getActiveEffects();
 			if (!active.isEmpty()) {
-				List<EffectRenderEntry> ordered = orderFromInstances(active, config, language);
+				List<EffectRenderEntry> ordered = orderFromInstances(active, config, language, ticksSuspended, true);
 				if (!previewFallback) {
 					return ordered;
 				}
 				if (highlightEffectId != null) {
-					return ensureHighlightedPreviewEntry(ordered, config, language, highlightEffectId);
+					return ensureHighlightedPreviewEntry(ordered, language, highlightEffectId, ticksSuspended);
 				}
 				if (!ordered.isEmpty()) {
 					return ordered;
 				}
-			} else if (!previewFallback) {
-				return List.of();
+			} else {
+				LIVE_DURATION_TRACKER.clear();
+				if (!previewFallback) {
+					return List.of();
+				}
 			}
 		}
 
@@ -118,36 +161,40 @@ public final class LiveDataCollector {
 		}
 		List<EffectRenderEntry> samples = createPreviewEffectEntries(config, language);
 		if (highlightEffectId != null) {
-			return ensureHighlightedPreviewEntry(samples, config, language, highlightEffectId);
+			return ensureHighlightedPreviewEntry(samples, language, highlightEffectId, false);
 		}
 		return samples;
 	}
 
 	private static List<EffectRenderEntry> ensureHighlightedPreviewEntry(
 			List<EffectRenderEntry> existing,
-			EffectsConfig config,
 			ModLanguage language,
-			String highlightEffectId
+			String highlightEffectId,
+			boolean ticksSuspended
 	) {
 		for (EffectRenderEntry entry : existing) {
 			if (highlightEffectId.equals(entry.snapshot().id())) {
 				return existing;
 			}
 		}
-		EffectRenderEntry highlighted = createSinglePreviewEntryForId(highlightEffectId, language);
+		EffectRenderEntry highlighted = createSinglePreviewEntryForId(highlightEffectId, language, ticksSuspended);
 		List<EffectRenderEntry> combined = new ArrayList<>(existing.size() + 1);
 		combined.add(highlighted);
 		combined.addAll(existing);
 		return combined;
 	}
 
-	private static EffectRenderEntry createSinglePreviewEntryForId(String effectId, ModLanguage language) {
+	private static EffectRenderEntry createSinglePreviewEntryForId(
+			String effectId,
+			ModLanguage language,
+			boolean ticksSuspended
+	) {
 		Identifier parsedId = Identifier.tryParse(effectId);
 		if (parsedId != null) {
 			Optional<Holder.Reference<MobEffect>> holderOpt = BuiltInRegistries.MOB_EFFECT.get(parsedId);
 			if (holderOpt.isPresent()) {
 				MobEffectInstance inst = new MobEffectInstance(holderOpt.get(), 900, 1, false, true, true);
-				return new EffectRenderEntry(snapshotFromEffect(inst, language), holderOpt.get());
+				return new EffectRenderEntry(snapshotFromEffect(inst, language, ticksSuspended), holderOpt.get());
 			}
 		}
 		EffectSnapshot fallback = new EffectSnapshot(
@@ -160,7 +207,8 @@ public final class LiveDataCollector {
 				false,
 				true,
 				true,
-				0
+				0,
+				ticksSuspended
 		);
 		return new EffectRenderEntry(fallback, null);
 	}
@@ -168,7 +216,9 @@ public final class LiveDataCollector {
 	private static List<EffectRenderEntry> orderFromInstances(
 			Collection<MobEffectInstance> instances,
 			EffectsConfig config,
-			ModLanguage language
+			ModLanguage language,
+			boolean ticksSuspended,
+			boolean trackLiveDurations
 	) {
 		List<EffectSnapshot> snapshots = new ArrayList<>(instances.size());
 		Map<EffectSnapshot, Holder<MobEffect>> holderMap = new IdentityHashMap<>();
@@ -176,9 +226,12 @@ public final class LiveDataCollector {
 			if (instance == null || instance.getEffect() == null) {
 				continue;
 			}
-			EffectSnapshot snapshot = snapshotFromEffect(instance, language);
+			EffectSnapshot snapshot = snapshotFromEffect(instance, language, ticksSuspended);
 			snapshots.add(snapshot);
 			holderMap.put(snapshot, instance.getEffect());
+		}
+		if (trackLiveDurations) {
+			LIVE_DURATION_TRACKER.syncAndObserve(snapshots);
 		}
 		List<EffectSnapshot> prepared = EffectOrderer.prepare(snapshots, config);
 		List<EffectRenderEntry> result = new ArrayList<>(prepared.size());
@@ -193,27 +246,27 @@ public final class LiveDataCollector {
 		for (ArmorSlotKind kind : order) {
 			ItemStack stack = switch (kind) {
 				case HELMET -> {
-					// Healthy (>60%)
+					// Very High (>95%): 363/363 = 100% (White)
 					ItemStack item = new ItemStack(Items.DIAMOND_HELMET);
-					item.setDamageValue(91);
+					item.setDamageValue(0);
 					yield item;
 				}
 				case CHESTPLATE -> {
-					// Warning (21-60%)
+					// Healthy (>60%..95%): 428/528 = 81% (Green)
 					ItemStack item = new ItemStack(Items.DIAMOND_CHESTPLATE);
-					item.setDamageValue(290);
+					item.setDamageValue(100);
 					yield item;
 				}
 				case LEGGINGS -> {
-					// Critical (<=20%)
-					ItemStack item = new ItemStack(Items.IRON_LEGGINGS);
-					item.setDamageValue(195);
+					// Warning (>20%..60%): 215/495 = 43% (Yellow)
+					ItemStack item = new ItemStack(Items.DIAMOND_LEGGINGS);
+					item.setDamageValue(280);
 					yield item;
 				}
 				case BOOTS -> {
-					// Unbreakable
-					ItemStack item = new ItemStack(Items.DIAMOND_BOOTS);
-					item.set(DataComponents.UNBREAKABLE, Unit.INSTANCE);
+					// Critical & <=10% Alert: 17/195 = 8.7% (Red + '!' badge)
+					ItemStack item = new ItemStack(Items.IRON_BOOTS);
+					item.setDamageValue(178);
 					yield item;
 				}
 				case MAIN_HAND -> {
@@ -234,13 +287,13 @@ public final class LiveDataCollector {
 
 	private static List<EffectRenderEntry> createPreviewEffectEntries(EffectsConfig config, ModLanguage language) {
 		List<MobEffectInstance> samples = List.of(
-				new MobEffectInstance(MobEffects.REGENERATION, 900, 1, false, true, true),
+				new MobEffectInstance(MobEffects.REGENERATION, 840, 0, false, true, true),
 				new MobEffectInstance(MobEffects.SPEED, 3080, 1, false, true, true),
 				new MobEffectInstance(MobEffects.HASTE, 840, 0, true, true, true),
 				new MobEffectInstance(MobEffects.NIGHT_VISION, MobEffectInstance.INFINITE_DURATION, 0, false, false, true),
 				new MobEffectInstance(MobEffects.WEAKNESS, 280, 0, false, true, true)
 		);
-		return orderFromInstances(samples, config, language);
+		return orderFromInstances(samples, config, language, false, false);
 	}
 
 	public static ArmorSlotSnapshot snapshotFromStack(ArmorSlotKind kind, ItemStack stack, ModLanguage language) {
@@ -277,6 +330,10 @@ public final class LiveDataCollector {
 	}
 
 	public static EffectSnapshot snapshotFromEffect(MobEffectInstance instance, ModLanguage language) {
+		return snapshotFromEffect(instance, language, false);
+	}
+
+	public static EffectSnapshot snapshotFromEffect(MobEffectInstance instance, ModLanguage language, boolean ticksSuspended) {
 		Holder<MobEffect> holder = instance.getEffect();
 		MobEffect effect = holder.value();
 		String id = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("custom:effect");
@@ -292,7 +349,8 @@ public final class LiveDataCollector {
 				instance.isAmbient(),
 				instance.isVisible(),
 				instance.showIcon(),
-				effect.getColor()
+				effect.getColor(),
+				ticksSuspended
 		);
 	}
 

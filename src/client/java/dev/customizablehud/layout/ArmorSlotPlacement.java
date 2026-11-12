@@ -16,6 +16,11 @@ public record ArmorSlotPlacement(
 		int textOffsetX,
 		int textOffsetY,
 		int textAreaWidth,
+		float numberTextScale,
+		int numberLineHeight,
+		boolean alertActive,
+		int alertOffsetX,
+		int alertOffsetY,
 		ArmorMetricPosition metricPosition,
 		HudRect screenBounds
 ) {
@@ -25,5 +30,13 @@ public record ArmorSlotPlacement(
 
 	public int unscaledIconY() {
 		return unscaledY + iconOffsetY;
+	}
+
+	public int unscaledAlertX() {
+		return unscaledX + alertOffsetX;
+	}
+
+	public int unscaledAlertY() {
+		return unscaledY + alertOffsetY;
 	}
 }

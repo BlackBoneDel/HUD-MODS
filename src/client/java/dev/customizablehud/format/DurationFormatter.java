@@ -7,6 +7,10 @@ public final class DurationFormatter {
 	}
 
 	public static String formatTicks(int ticks, float ticksPerSecond, boolean infinite) {
+		return formatTicks(ticks, ticksPerSecond, infinite, false);
+	}
+
+	public static String formatTicks(int ticks, float ticksPerSecond, boolean infinite, boolean ticksSuspended) {
 		if (infinite || ticks < 0) {
 			return "∞";
 		}
@@ -15,10 +19,10 @@ public final class DurationFormatter {
 		long hours = totalSeconds / 3600L;
 		long minutes = (totalSeconds % 3600L) / 60L;
 		long seconds = totalSeconds % 60L;
-		if (hours > 0L) {
-			return String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds);
-		}
-		return String.format(Locale.ROOT, "%d:%02d", minutes, seconds);
+		String base = hours > 0L
+				? String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
+				: String.format(Locale.ROOT, "%d:%02d", minutes, seconds);
+		return ticksSuspended ? "~" + base : base;
 	}
 
 	public static int durationColorArgb(int ticks, float ticksPerSecond, boolean infinite, boolean colorByRemaining) {

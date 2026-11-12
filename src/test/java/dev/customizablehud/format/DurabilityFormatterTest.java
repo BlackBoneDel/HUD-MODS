@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DurabilityFormatterTest {
 	@Test
-	void defaultsToPointsOnlyWithoutMaxAndNeverCombinesPointsAndPercent() {
+	void defaultsToPointsOnlyWithoutMaxAndAlertOnWithoutBlink() {
 		assertEquals(3, DurabilityDisplayMode.values().length);
 
 		ArmorConfig config = new ArmorConfig();
@@ -19,7 +19,17 @@ class DurabilityFormatterTest {
 		assertFalse(config.showMaxDurability);
 		assertFalse(config.showItemName);
 		assertFalse(config.showHandItemName);
+		assertEquals(1.0f, config.numberScale);
+		assertTrue(config.showLowDurabilityAlert);
+		assertEquals(10, config.lowDurabilityAlertThresholdPercent);
 		assertFalse(config.lowDurabilityWarning);
+		assertEquals(95, config.veryHighThresholdPercent);
+		assertEquals(60, config.warningThresholdPercent);
+		assertEquals(20, config.criticalThresholdPercent);
+		assertEquals("#FFFFFF", config.veryHighColorHex);
+		assertEquals("#55FF55", config.healthyColorHex);
+		assertEquals("#FFFF55", config.warningColorHex);
+		assertEquals("#FF5555", config.criticalColorHex);
 
 		ArmorSlotSnapshot chest = new ArmorSlotSnapshot(
 				ArmorSlotKind.CHESTPLATE, true, "Diamond Chestplate", true, false, 203, 50, 1, true, 0.75f
@@ -49,6 +59,7 @@ class DurabilityFormatterTest {
 		assertEquals("", DurabilityFormatter.format(empty, config));
 		assertEquals(DurabilityFormatter.DurabilityLevel.NONE, DurabilityFormatter.classifyLevel(empty, config));
 		assertFalse(DurabilityFormatter.isLowDurability(empty, config));
+		assertFalse(DurabilityFormatter.isAlertActive(empty, config));
 
 		ArmorSlotSnapshot unbreakable = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Unbreakable Crown", false, true, 0, 0, 1, false, 1.0f
@@ -56,6 +67,7 @@ class DurabilityFormatterTest {
 		assertFalse(unbreakable.hasValidDurability());
 		assertEquals("∞", DurabilityFormatter.format(unbreakable, config));
 		assertFalse(DurabilityFormatter.isLowDurability(unbreakable, config));
+		assertFalse(DurabilityFormatter.isAlertActive(unbreakable, config));
 
 		ArmorSlotSnapshot pumpkin = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Carved Pumpkin", false, false, 0, 0, 1, false, 0.0f
@@ -64,12 +76,14 @@ class DurabilityFormatterTest {
 		assertEquals(0, pumpkin.remainingPercent());
 		assertEquals("", DurabilityFormatter.format(pumpkin, config));
 		assertFalse(DurabilityFormatter.isLowDurability(pumpkin, config));
+		assertFalse(DurabilityFormatter.isAlertActive(pumpkin, config));
 
 		ArmorSlotSnapshot brokenZeroMax = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Invalid Item", true, false, 0, 0, 1, false, 0.0f
 		);
 		assertFalse(brokenZeroMax.hasValidDurability());
 		assertEquals("", DurabilityFormatter.format(brokenZeroMax, config));
+		assertFalse(DurabilityFormatter.isAlertActive(brokenZeroMax, config));
 	}
 
 	@Test
@@ -88,43 +102,57 @@ class DurabilityFormatterTest {
 	}
 
 	@Test
-	void evaluatesExactUnroundedThreeTierThresholdsAndMatchesTextWithBar() {
+	void evaluatesExactUnroundedFourTierThresholdsAndMatchesTextColors() {
 		ArmorConfig config = new ArmorConfig();
 		config.colorByDurability = true;
-		config.warningThresholdPercent = 60;
-		config.criticalThresholdPercent = 20;
-		config.lowDurabilityWarning = false;
 
-		ArmorSlotSnapshot at61 = new ArmorSlotSnapshot(
-				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 39, 1, true, 0.61f
+		// 100% -> White (#FFFFFF)
+		ArmorSlotSnapshot at100 = new ArmorSlotSnapshot(
+				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 0, 1, false, 1.0f
 		);
-		assertEquals(DurabilityFormatter.DurabilityLevel.HEALTHY, DurabilityFormatter.classifyLevel(at61, config));
-		assertEquals(0xFF6EEB83, DurabilityFormatter.textColorArgb(at61, config, 0L));
-		assertEquals(0xFF6EEB83, DurabilityFormatter.barColorArgb(at61, config));
+		assertEquals(DurabilityFormatter.DurabilityLevel.VERY_HIGH, DurabilityFormatter.classifyLevel(at100, config));
+		assertEquals(0xFFFFFFFF, DurabilityFormatter.textColorArgb(at100, config, 0L));
+		assertEquals(0xFFFFFFFF, DurabilityFormatter.barColorArgb(at100, config));
 
-		// 302/500 = 60.4% -> stays Healthy
+		// 95.2% (476/500, visually rounds to 95%) -> still >95% so White (#FFFFFF)
+		ArmorSlotSnapshot at95Point2 = new ArmorSlotSnapshot(
+				ArmorSlotKind.HELMET, true, "Helmet", true, false, 500, 24, 1, true, 0.952f
+		);
+		assertEquals(95, at95Point2.remainingPercent());
+		assertEquals(DurabilityFormatter.DurabilityLevel.VERY_HIGH, DurabilityFormatter.classifyLevel(at95Point2, config));
+		assertEquals(0xFFFFFFFF, DurabilityFormatter.textColorArgb(at95Point2, config, 0L));
+
+		// Exactly 95.0% -> <=95% and >60% so Green (#55FF55)
+		ArmorSlotSnapshot at95 = new ArmorSlotSnapshot(
+				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 5, 1, true, 0.95f
+		);
+		assertEquals(DurabilityFormatter.DurabilityLevel.HEALTHY, DurabilityFormatter.classifyLevel(at95, config));
+		assertEquals(0xFF55FF55, DurabilityFormatter.textColorArgb(at95, config, 0L));
+		assertEquals(0xFF55FF55, DurabilityFormatter.barColorArgb(at95, config));
+
+		// 60.4% (302/500, visually rounds to 60%) -> still >60% so Green (#55FF55)
 		ArmorSlotSnapshot at60Point4 = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Helmet", true, false, 500, 198, 1, true, 0.604f
 		);
 		assertEquals(60, at60Point4.remainingPercent());
 		assertEquals(DurabilityFormatter.DurabilityLevel.HEALTHY, DurabilityFormatter.classifyLevel(at60Point4, config));
 
-		// Exactly 60.0% -> Warning
+		// Exactly 60.0% -> <=60% and >20% so Yellow (#FFFF55)
 		ArmorSlotSnapshot at60 = new ArmorSlotSnapshot(
 				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 40, 1, true, 0.60f
 		);
 		assertEquals(DurabilityFormatter.DurabilityLevel.WARNING, DurabilityFormatter.classifyLevel(at60, config));
-		assertEquals(0xFFFFE066, DurabilityFormatter.textColorArgb(at60, config, 0L));
-		assertEquals(0xFFFFE066, DurabilityFormatter.barColorArgb(at60, config));
+		assertEquals(0xFFFFFF55, DurabilityFormatter.textColorArgb(at60, config, 0L));
+		assertEquals(0xFFFFFF55, DurabilityFormatter.barColorArgb(at60, config));
 
-		// 102/500 = 20.4% -> stays Warning
+		// 20.4% (102/500, visually rounds to 20%) -> still >20% so Yellow (#FFFF55)
 		ArmorSlotSnapshot at20Point4 = new ArmorSlotSnapshot(
 				ArmorSlotKind.CHESTPLATE, true, "Chest", true, false, 500, 398, 1, true, 0.204f
 		);
 		assertEquals(20, at20Point4.remainingPercent());
 		assertEquals(DurabilityFormatter.DurabilityLevel.WARNING, DurabilityFormatter.classifyLevel(at20Point4, config));
 
-		// Exactly 20.0% -> Critical
+		// Exactly 20.0% -> <=20% so Red (#FF5555)
 		ArmorSlotSnapshot at20 = new ArmorSlotSnapshot(
 				ArmorSlotKind.BOOTS, true, "Boots", true, false, 100, 80, 1, true, 0.20f
 		);
@@ -133,7 +161,7 @@ class DurabilityFormatterTest {
 		assertEquals(0xFFFF5555, DurabilityFormatter.textColorArgb(at20, config, 0L));
 		assertEquals(0xFFFF5555, DurabilityFormatter.barColorArgb(at20, config));
 
-		// 0% -> Critical
+		// 0% -> Red (#FF5555)
 		ArmorSlotSnapshot at0 = new ArmorSlotSnapshot(
 				ArmorSlotKind.BOOTS, true, "Boots", true, false, 100, 100, 1, true, 0.0f
 		);
@@ -142,33 +170,51 @@ class DurabilityFormatterTest {
 	}
 
 	@Test
-	void computesBoundedNonHidingWarningBlinkOnlyForCriticalSlotsAndHandlesCorruptTimes() {
+	void showsLowDurabilityAlertOnlyAtThresholdAndComputesOptionalNonHidingBlink() {
 		ArmorConfig config = new ArmorConfig();
-		config.colorByDurability = true;
-		config.warningThresholdPercent = 75;
-		config.criticalThresholdPercent = 25;
-		config.healthyColorHex = "#55FFFF";
-		config.warningColorHex = "#FFA500";
-		config.criticalColorHex = "#FF00AA";
+		config.colorByDurability = false;
+		config.durabilityDisplayMode = DurabilityDisplayMode.NONE;
+		config.showLowDurabilityAlert = true;
+		config.lowDurabilityAlertThresholdPercent = 10;
+		config.lowDurabilityWarning = false;
+
+		ArmorSlotSnapshot healthy = new ArmorSlotSnapshot(
+				ArmorSlotKind.HELMET, true, "Helmet", true, false, 100, 20, 1, true, 0.80f
+		);
+		ArmorSlotSnapshot at10Point2 = new ArmorSlotSnapshot(
+				ArmorSlotKind.CHESTPLATE, true, "Chest", true, false, 500, 449, 1, true, 0.102f
+		);
+		ArmorSlotSnapshot at10 = new ArmorSlotSnapshot(
+				ArmorSlotKind.LEGGINGS, true, "Leggings", true, false, 100, 90, 1, true, 0.10f
+		);
+		ArmorSlotSnapshot at5 = new ArmorSlotSnapshot(
+				ArmorSlotKind.BOOTS, true, "Boots", true, false, 100, 95, 1, true, 0.05f
+		);
+
+		// Alert appears ONLY on <=10% pieces, independent of number mode or colorByDurability
+		assertFalse(DurabilityFormatter.isAlertActive(healthy, config));
+		assertFalse(DurabilityFormatter.isAlertActive(at10Point2, config));
+		assertTrue(DurabilityFormatter.isAlertActive(at10, config));
+		assertTrue(DurabilityFormatter.isAlertActive(at5, config));
+		// Blink animation is OFF by default
+		assertFalse(DurabilityFormatter.computeWarningBlink(at5, config, 0L).active());
+
+		// Raising threshold in settings catches more damaged pieces
+		config.lowDurabilityAlertThresholdPercent = 25;
+		assertTrue(DurabilityFormatter.isAlertActive(healthy, config) == false);
+		assertTrue(DurabilityFormatter.isAlertActive(at10Point2, config));
+
+		// Optional blink only modulates the badge alpha cleanly, never hiding text/HUD
 		config.lowDurabilityWarning = true;
+		config.colorByDurability = true;
+		config.criticalColorHex = "#FF00AA";
+		config.alertColorHex = "#FF2222";
+		assertEquals(0xFFFF2222, DurabilityFormatter.alertColorArgb(config));
+		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(at5, config, 0L));
+		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(at5, config, 350L));
 
-		ArmorSlotSnapshot warningItem = new ArmorSlotSnapshot(
-				ArmorSlotKind.LEGGINGS, true, "Leggings", true, false, 100, 30, 1, true, 0.70f
-		);
-		assertFalse(DurabilityFormatter.computeWarningBlink(warningItem, config, 0L).active());
-		assertEquals(0xFFFFA500, DurabilityFormatter.textColorArgb(warningItem, config, 0L));
-		assertEquals(0xFFFFA500, DurabilityFormatter.barColorArgb(warningItem, config));
-
-		ArmorSlotSnapshot criticalItem = new ArmorSlotSnapshot(
-				ArmorSlotKind.BOOTS, true, "Boots", true, false, 100, 80, 1, true, 0.20f
-		);
-		// Text color remains solid & legible while only the warning indicator blinks with bounded alpha
-		assertEquals(0xFFFF00AA, DurabilityFormatter.barColorArgb(criticalItem, config));
-		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(criticalItem, config, 0L));
-		assertEquals(0xFFFF00AA, DurabilityFormatter.textColorArgb(criticalItem, config, 350L));
-
-		DurabilityFormatter.WarningBlinkState phaseHigh = DurabilityFormatter.computeWarningBlink(criticalItem, config, 0L);
-		DurabilityFormatter.WarningBlinkState phaseLow = DurabilityFormatter.computeWarningBlink(criticalItem, config, 350L);
+		DurabilityFormatter.WarningBlinkState phaseHigh = DurabilityFormatter.computeWarningBlink(at5, config, 0L);
+		DurabilityFormatter.WarningBlinkState phaseLow = DurabilityFormatter.computeWarningBlink(at5, config, 350L);
 		assertTrue(phaseHigh.active());
 		assertTrue(phaseHigh.highPhase());
 		assertTrue(phaseLow.active());
@@ -177,22 +223,14 @@ class DurabilityFormatterTest {
 		assertTrue(phaseLow.indicatorAlpha() >= DurabilityFormatter.BLINK_MIN_ALPHA);
 		assertTrue(phaseLow.indicatorAlpha() <= DurabilityFormatter.BLINK_MAX_ALPHA);
 
-		// Negative or extreme Long.MIN_VALUE timestamps never crash or drop alpha to zero
-		DurabilityFormatter.WarningBlinkState minTime = DurabilityFormatter.computeWarningBlink(criticalItem, config, Long.MIN_VALUE);
+		DurabilityFormatter.WarningBlinkState minTime = DurabilityFormatter.computeWarningBlink(at5, config, Long.MIN_VALUE);
 		assertTrue(minTime.active());
 		assertTrue(minTime.indicatorAlpha() >= DurabilityFormatter.BLINK_MIN_ALPHA);
 
-		// Empty / non-damageable / unbreakable slots never blink
-		assertFalse(DurabilityFormatter.computeWarningBlink(ArmorSlotSnapshot.empty(ArmorSlotKind.HELMET), config, 0L).active());
-		assertFalse(DurabilityFormatter.computeWarningBlink(
-				new ArmorSlotSnapshot(ArmorSlotKind.HELMET, true, "Pumpkin", false, false, 0, 0, 1, false, 0.0f),
-				config,
-				0L
-		).active());
-
-		// Disabling stops blink immediately
-		config.lowDurabilityWarning = false;
-		assertFalse(DurabilityFormatter.computeWarningBlink(criticalItem, config, 0L).active());
+		// Disabling alert stops both alert badge and blink
+		config.showLowDurabilityAlert = false;
+		assertFalse(DurabilityFormatter.isAlertActive(at5, config));
+		assertFalse(DurabilityFormatter.computeWarningBlink(at5, config, 0L).active());
 	}
 
 	@Test

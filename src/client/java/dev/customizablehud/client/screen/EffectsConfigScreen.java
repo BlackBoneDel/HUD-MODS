@@ -9,6 +9,8 @@ import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudConfig;
 import dev.customizablehud.config.HudOrientation;
 import dev.customizablehud.config.LevelFormat;
+import dev.customizablehud.config.PotionHudMode;
+import dev.customizablehud.config.PotionMiniDisplayMode;
 import dev.customizablehud.config.VanillaEffectsMode;
 import dev.customizablehud.layout.HudRect;
 import java.util.List;
@@ -191,6 +193,49 @@ public final class EffectsConfigScreen extends AbstractScrollableConfigScreen {
 						: "customizablehud.tooltip.effects.show_border_off")))
 						.create(rightX, 0, halfW, 20, t("customizablehud.effects.show_border"), (btn, val) -> {
 							effects.showEffectBorder = val;
+							notifyConfigEdited();
+						}),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
+				new IntSliderButton(
+						leftX,
+						0,
+						panelW,
+						20,
+						t("customizablehud.effects.bg_opacity"),
+						"%",
+						ConfigValidator.MIN_OPACITY_PERCENT,
+						ConfigValidator.MAX_OPACITY_PERCENT,
+						effects.backgroundOpacityPercent,
+						val -> {
+							effects.backgroundOpacityPercent = val;
+							notifyConfigEdited();
+						},
+						val -> t("customizablehud.tooltip.effects.bg_opacity", val)
+				),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
+				CycleButton.builder((PotionHudMode pm) -> t(pm.translationKey()), effects.potionHudMode)
+						.withValues(List.of(PotionHudMode.values()))
+						.withTooltip(val -> Tooltip.create(t(val.tooltipKey())))
+						.create(leftX, 0, halfW, 20, t("customizablehud.effects.potion_mode"), (btn, val) -> {
+							effects.potionHudMode = val;
+							notifyConfigEdited();
+						}),
+				y
+		);
+		addScrollWidget(
+				CycleButton.builder((PotionMiniDisplayMode md) -> t(md.translationKey()), effects.potionMiniDisplay)
+						.withValues(List.of(PotionMiniDisplayMode.values()))
+						.withTooltip(val -> Tooltip.create(t(val.tooltipKey())))
+						.create(rightX, 0, halfW, 20, t("customizablehud.effects.mini_display"), (btn, val) -> {
+							effects.potionMiniDisplay = val;
 							notifyConfigEdited();
 						}),
 				y

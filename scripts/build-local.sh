@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "=== Customizable HUD - Local Build & Validation (Linux/macOS) ==="
+echo "=== Hud Utils - Local Build & Validation (Linux/macOS) ==="
 
 if ! command -v java >/dev/null 2>&1; then
   echo "ERROR: No se encontró el comando 'java' en el PATH."
@@ -50,7 +50,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   python3 scripts/validate-jar.py
 else
-  JAR_PATH="build/libs/customizablehud-1.0.0.jar"
+  JAR_PATH="build/libs/hud-utils-1.0.0.jar"
   if [[ ! -f "$JAR_PATH" ]]; then
     echo "ERROR: No se encontró el JAR esperado en $JAR_PATH"
     exit 1

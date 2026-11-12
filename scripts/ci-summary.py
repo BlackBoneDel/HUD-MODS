@@ -118,10 +118,10 @@ def main() -> int:
     commit = os.environ.get("GITHUB_SHA", build_info.get("git_commit", "local"))
     ref_name = os.environ.get("GITHUB_REF_NAME", build_info.get("git_branch", "local"))
     java_ver = java_version_line()
-    source_zip = repo_root / "dist" / "customizablehud-source.zip"
+    source_zip = repo_root / "dist" / "hud-utils-source.zip"
 
     lines: list[str] = [
-        "## Customizable HUD — Resumen de compilación CI",
+        "## Hud Utils — Resumen de compilación CI",
         "",
         f"- **Commit**: `{commit}`",
         f"- **Rama / Ref**: `{ref_name}`",
@@ -164,23 +164,23 @@ def main() -> int:
     lines.extend(["", "### Artefactos generados"])
     if build_info:
         lines.append(
-            f"- **JAR remapeado (`customizablehud-mod-jar`)**: `{build_info.get('artifact_name')}` "
+            f"- **JAR remapeado (`hud-utils-mod-jar`)**: `{build_info.get('artifact_name')}` "
             f"(`{build_info.get('artifact_size_bytes')} bytes`, SHA-256: `{build_info.get('artifact_sha256')}`)"
         )
     else:
-        lines.append("- **JAR remapeado (`customizablehud-mod-jar`)**: no generado o validación no completada.")
+        lines.append("- **JAR remapeado (`hud-utils-mod-jar`)**: no generado o validación no completada.")
 
     if source_zip.is_file():
         lines.append(
-            f"- **Código fuente (`customizablehud-source-zip`)**: `dist/customizablehud-source.zip` "
+            f"- **Código fuente (`hud-utils-source-zip`)**: `dist/hud-utils-source.zip` "
             f"(`{source_zip.stat().st_size} bytes`)"
         )
     else:
-        lines.append("- **Código fuente (`customizablehud-source-zip`)**: no generado.")
+        lines.append("- **Código fuente (`hud-utils-source-zip`)**: no generado.")
 
     lines.extend(
         [
-            "- **Reportes (`customizablehud-test-reports`)**: `build/reports/` y `build/test-results/` (si existen).",
+            "- **Reportes (`hud-utils-test-reports`)**: `build/reports/` y `build/test-results/` (si existen).",
             "",
             "> Descarga los artefactos desde la sección **Artifacts** en la parte inferior de esta ejecución en la pestaña **Actions** del repositorio (retención temporal de 30 días).",
         ]

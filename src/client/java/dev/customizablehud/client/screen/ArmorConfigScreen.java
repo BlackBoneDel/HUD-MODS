@@ -13,19 +13,30 @@ import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.HudConfig;
 import dev.customizablehud.config.HudOrientation;
 import dev.customizablehud.layout.HudRect;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
+	private record ColorBoxTrack(EditBox box, Supplier<String> colorGetter, boolean invalid) {
+	}
+
+	private IntSliderButton veryHighSlider;
 	private IntSliderButton warningSlider;
 	private IntSliderButton criticalSlider;
+	private final List<ColorBoxTrack> colorBoxTracks = new ArrayList<>();
+	private boolean suppressHexCallback = false;
 
 	public ArmorConfigScreen(Screen parent, HudConfig workingConfig) {
 		super("customizablehud.screen.armor.title", parent, workingConfig);
@@ -44,6 +55,7 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 	@Override
 	protected void init() {
 		resetScrollContainer();
+		colorBoxTracks.clear();
 
 		ArmorConfig armor = workingConfig.armor;
 		int panelW = contentPanelWidth();
@@ -140,6 +152,34 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 							armor.orientation = val;
 							notifyConfigEdited();
 						}),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
+				Button.builder(t("customizablehud.armor.near_hotbar_left"), btn -> {
+					armor.anchor = HudAnchor.HOTBAR_LEFT;
+					armor.offsetX = 0;
+					armor.offsetY = 0;
+					armor.individualPositionsEnabled = false;
+					notifyConfigEdited();
+					this.rebuildWidgets();
+				}).bounds(leftX, 0, halfW, 20)
+						.tooltip(Tooltip.create(t("customizablehud.tooltip.armor.near_hotbar_left")))
+						.build(),
+				y
+		);
+		addScrollWidget(
+				Button.builder(t("customizablehud.armor.near_hotbar_right"), btn -> {
+					armor.anchor = HudAnchor.HOTBAR_RIGHT;
+					armor.offsetX = 0;
+					armor.offsetY = 0;
+					armor.individualPositionsEnabled = false;
+					notifyConfigEdited();
+					this.rebuildWidgets();
+				}).bounds(rightX, 0, halfW, 20)
+						.tooltip(Tooltip.create(t("customizablehud.tooltip.armor.near_hotbar_right")))
+						.build(),
 				y
 		);
 		y += ROW_HEIGHT;
@@ -257,6 +297,26 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		y += ROW_HEIGHT;
 
 		addScrollWidget(
+				new ScaleSliderButton(
+						leftX,
+						0,
+						panelW,
+						20,
+						t("customizablehud.armor.number_scale"),
+						ConfigValidator.MIN_NUMBER_SCALE,
+						ConfigValidator.MAX_NUMBER_SCALE,
+						armor.numberScale,
+						val -> {
+							armor.numberScale = val;
+							notifyConfigEdited();
+						},
+						val -> t("customizablehud.tooltip.armor.number_scale", String.format(Locale.ROOT, "%.2fx", val))
+				),
+				y
+		);
+		y += ROW_HEIGHT;
+
+		addScrollWidget(
 				CycleButton.booleanBuilder(
 						t("customizablehud.state.on"),
 						t("customizablehud.state.off"),
@@ -286,11 +346,45 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		);
 		y += ROW_HEIGHT;
 
-		warningSlider = addScrollWidget(
+		addInfoNote(t("customizablehud.armor.threshold_rule_note"), leftX, y);
+		y += 13;
+
+		veryHighSlider = addScrollWidget(
 				new IntSliderButton(
 						leftX,
 						0,
-						halfW,
+						thirdW,
+						20,
+						t("customizablehud.armor.very_high_threshold"),
+						"%",
+						ConfigValidator.MIN_VERY_HIGH_THRESHOLD,
+						ConfigValidator.MAX_VERY_HIGH_THRESHOLD,
+						armor.veryHighThresholdPercent,
+						val -> {
+							armor.veryHighThresholdPercent = val;
+							if (armor.warningThresholdPercent >= val) {
+								armor.warningThresholdPercent = Math.max(ConfigValidator.MIN_WARNING_THRESHOLD, val - 1);
+								if (warningSlider != null) {
+									warningSlider.setIntValue(armor.warningThresholdPercent);
+								}
+							}
+							if (armor.criticalThresholdPercent >= armor.warningThresholdPercent) {
+								armor.criticalThresholdPercent = Math.max(ConfigValidator.MIN_CRITICAL_THRESHOLD, armor.warningThresholdPercent - 1);
+								if (criticalSlider != null) {
+									criticalSlider.setIntValue(armor.criticalThresholdPercent);
+								}
+							}
+							notifyConfigEdited();
+						},
+						val -> t("customizablehud.tooltip.armor.very_high_threshold", val, armor.warningThresholdPercent)
+				),
+				y
+		);
+		warningSlider = addScrollWidget(
+				new IntSliderButton(
+						leftX + thirdW + 6,
+						0,
+						thirdW,
 						20,
 						t("customizablehud.armor.warning_threshold"),
 						"%",
@@ -299,6 +393,12 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 						armor.warningThresholdPercent,
 						val -> {
 							armor.warningThresholdPercent = val;
+							if (armor.veryHighThresholdPercent <= val) {
+								armor.veryHighThresholdPercent = Math.min(ConfigValidator.MAX_VERY_HIGH_THRESHOLD, val + 1);
+								if (veryHighSlider != null) {
+									veryHighSlider.setIntValue(armor.veryHighThresholdPercent);
+								}
+							}
 							if (armor.criticalThresholdPercent >= val) {
 								armor.criticalThresholdPercent = Math.max(ConfigValidator.MIN_CRITICAL_THRESHOLD, val - 1);
 								if (criticalSlider != null) {
@@ -313,9 +413,9 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		);
 		criticalSlider = addScrollWidget(
 				new IntSliderButton(
-						rightX,
+						leftX + (thirdW + 6) * 2,
 						0,
-						halfW,
+						thirdW,
 						20,
 						t("customizablehud.armor.critical_threshold"),
 						"%",
@@ -330,6 +430,12 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 									warningSlider.setIntValue(armor.warningThresholdPercent);
 								}
 							}
+							if (armor.veryHighThresholdPercent <= armor.warningThresholdPercent) {
+								armor.veryHighThresholdPercent = Math.min(ConfigValidator.MAX_VERY_HIGH_THRESHOLD, armor.warningThresholdPercent + 1);
+								if (veryHighSlider != null) {
+									veryHighSlider.setIntValue(armor.veryHighThresholdPercent);
+								}
+							}
 							notifyConfigEdited();
 						},
 						val -> t("customizablehud.tooltip.armor.critical_threshold", val, armor.warningThresholdPercent)
@@ -338,40 +444,87 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 		);
 		y += ROW_HEIGHT;
 
+		y = addColorPickerRow(
+				leftX, panelW, y,
+				"customizablehud.armor.color_very_high",
+				"customizablehud.tooltip.armor.color_very_high",
+				0xFFFFFF,
+				ColorHexUtils.VERY_HIGH_COLOR_PRESETS,
+				() -> armor.veryHighColorHex,
+				hex -> armor.veryHighColorHex = hex
+		);
+		y = addColorPickerRow(
+				leftX, panelW, y,
+				"customizablehud.armor.color_healthy",
+				"customizablehud.tooltip.armor.color_healthy",
+				0x55FF55,
+				ColorHexUtils.HEALTHY_COLOR_PRESETS,
+				() -> armor.healthyColorHex,
+				hex -> armor.healthyColorHex = hex
+		);
+		y = addColorPickerRow(
+				leftX, panelW, y,
+				"customizablehud.armor.color_warning",
+				"customizablehud.tooltip.armor.color_warning",
+				0xFFFF55,
+				ColorHexUtils.WARNING_COLOR_PRESETS,
+				() -> armor.warningColorHex,
+				hex -> armor.warningColorHex = hex
+		);
+		y = addColorPickerRow(
+				leftX, panelW, y,
+				"customizablehud.armor.color_critical",
+				"customizablehud.tooltip.armor.color_critical",
+				0xFF5555,
+				ColorHexUtils.CRITICAL_COLOR_PRESETS,
+				() -> armor.criticalColorHex,
+				hex -> armor.criticalColorHex = hex
+		);
+
 		addScrollWidget(
-				Button.builder(buildColorLabel("customizablehud.armor.color_healthy", armor.healthyColorHex, 0x6EEB83), btn -> {
-							armor.healthyColorHex = ColorHexUtils.nextPresetColor(armor.healthyColorHex, ColorHexUtils.HEALTHY_COLOR_PRESETS);
-							btn.setMessage(buildColorLabel("customizablehud.armor.color_healthy", armor.healthyColorHex, 0x6EEB83));
+				CycleButton.booleanBuilder(
+						t("customizablehud.state.on"),
+						t("customizablehud.state.off"),
+						armor.showLowDurabilityAlert
+				).withTooltip(val -> Tooltip.create(t(val
+						? "customizablehud.tooltip.armor.low_alert_on"
+						: "customizablehud.tooltip.armor.low_alert_off")))
+						.create(leftX, 0, halfW, 20, t("customizablehud.armor.low_alert"), (btn, val) -> {
+							armor.showLowDurabilityAlert = val;
 							notifyConfigEdited();
-						})
-						.bounds(leftX, 0, thirdW, 20)
-						.tooltip(Tooltip.create(t("customizablehud.tooltip.armor.color_healthy")))
-						.build(),
+						}),
 				y
 		);
 		addScrollWidget(
-				Button.builder(buildColorLabel("customizablehud.armor.color_warning", armor.warningColorHex, 0xFFE066), btn -> {
-							armor.warningColorHex = ColorHexUtils.nextPresetColor(armor.warningColorHex, ColorHexUtils.WARNING_COLOR_PRESETS);
-							btn.setMessage(buildColorLabel("customizablehud.armor.color_warning", armor.warningColorHex, 0xFFE066));
+				new IntSliderButton(
+						rightX,
+						0,
+						halfW,
+						20,
+						t("customizablehud.armor.alert_threshold"),
+						"%",
+						ConfigValidator.MIN_ALERT_THRESHOLD,
+						ConfigValidator.MAX_ALERT_THRESHOLD,
+						armor.lowDurabilityAlertThresholdPercent,
+						val -> {
+							armor.lowDurabilityAlertThresholdPercent = val;
 							notifyConfigEdited();
-						})
-						.bounds(leftX + thirdW + 6, 0, thirdW, 20)
-						.tooltip(Tooltip.create(t("customizablehud.tooltip.armor.color_warning")))
-						.build(),
-				y
-		);
-		addScrollWidget(
-				Button.builder(buildColorLabel("customizablehud.armor.color_critical", armor.criticalColorHex, 0xFF5555), btn -> {
-							armor.criticalColorHex = ColorHexUtils.nextPresetColor(armor.criticalColorHex, ColorHexUtils.CRITICAL_COLOR_PRESETS);
-							btn.setMessage(buildColorLabel("customizablehud.armor.color_critical", armor.criticalColorHex, 0xFF5555));
-							notifyConfigEdited();
-						})
-						.bounds(leftX + (thirdW + 6) * 2, 0, thirdW, 20)
-						.tooltip(Tooltip.create(t("customizablehud.tooltip.armor.color_critical")))
-						.build(),
+						},
+						val -> t("customizablehud.tooltip.armor.alert_threshold", val)
+				),
 				y
 		);
 		y += ROW_HEIGHT;
+
+		y = addColorPickerRow(
+				leftX, panelW, y,
+				"customizablehud.armor.color_alert",
+				"customizablehud.tooltip.armor.color_alert",
+				0xFF5555,
+				ColorHexUtils.ALERT_COLOR_PRESETS,
+				() -> armor.alertColorHex,
+				hex -> armor.alertColorHex = hex
+		);
 
 		addScrollWidget(
 				CycleButton.booleanBuilder(
@@ -563,6 +716,93 @@ public final class ArmorConfigScreen extends AbstractScrollableConfigScreen {
 						.tooltip(Tooltip.create(t("customizablehud.tooltip.back_screen")))
 						.build()
 		);
+	}
+
+	private int addColorPickerRow(
+			int leftX,
+			int panelW,
+			int y,
+			String labelKey,
+			String tooltipKey,
+			int fallbackRgb,
+			List<String> presets,
+			Supplier<String> getter,
+			Consumer<String> setter
+	) {
+		int hexW = 68;
+		int btnW = Math.max(80, panelW - hexW - 6);
+		EditBox hexBox = new EditBox(this.font, leftX + btnW + 6, 0, hexW, 18, t("customizablehud.effect_colors.hex_label"));
+		hexBox.setMaxLength(7);
+		hexBox.setValue(ColorHexUtils.normalizeOrDefault(getter.get(), String.format(Locale.ROOT, "#%06X", fallbackRgb)));
+		hexBox.setFilter(text -> text.matches("#?[0-9a-fA-F]{0,6}"));
+		hexBox.setTooltip(Tooltip.create(t("customizablehud.tooltip.armor.color_hex")));
+
+		Button cycleBtn = Button.builder(buildColorLabel(labelKey, getter.get(), fallbackRgb), btn -> {
+			String next = ColorHexUtils.nextPresetColor(getter.get(), presets);
+			setter.accept(next);
+			btn.setMessage(buildColorLabel(labelKey, next, fallbackRgb));
+			suppressHexCallback = true;
+			hexBox.setValue(next);
+			suppressHexCallback = false;
+			setTrackInvalid(hexBox, false);
+			notifyConfigEdited();
+		}).bounds(leftX, 0, btnW, 20)
+				.tooltip(Tooltip.create(t(tooltipKey)))
+				.build();
+
+		hexBox.setResponder(text -> {
+			if (suppressHexCallback) {
+				return;
+			}
+			Optional<String> normalized = ColorHexUtils.normalizeHex(text);
+			boolean invalid = text != null && !text.isBlank() && normalized.isEmpty();
+			setTrackInvalid(hexBox, invalid);
+			if (normalized.isPresent()) {
+				setter.accept(normalized.get());
+				cycleBtn.setMessage(buildColorLabel(labelKey, normalized.get(), fallbackRgb));
+				notifyConfigEdited();
+			}
+		});
+
+		addScrollWidget(cycleBtn, y);
+		addScrollWidget(hexBox, y + 1);
+		colorBoxTracks.add(new ColorBoxTrack(hexBox, getter, false));
+		return y + ROW_HEIGHT;
+	}
+
+	private void setTrackInvalid(EditBox box, boolean invalid) {
+		for (int i = 0; i < colorBoxTracks.size(); i++) {
+			ColorBoxTrack track = colorBoxTracks.get(i);
+			if (track.box() == box) {
+				colorBoxTracks.set(i, new ColorBoxTrack(track.box(), track.colorGetter(), invalid));
+				return;
+			}
+		}
+	}
+
+	@Override
+	public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+		super.render(graphics, mouseX, mouseY, partialTick);
+		int top = bodyTop();
+		int bottom = bodyBottom();
+		int bodyAreaRight = isSidePreviewLayout() ? (contentLeftX() + contentPanelWidth() + 8) : this.width;
+		graphics.enableScissor(0, top, bodyAreaRight, bottom);
+		try {
+			for (ColorBoxTrack track : colorBoxTracks) {
+				EditBox box = track.box();
+				if (box.getBottom() < top || box.getY() > bottom) {
+					continue;
+				}
+				if (track.invalid()) {
+					graphics.renderOutline(box.getX() - 1, box.getY() - 1, box.getWidth() + 2, box.getHeight() + 2, 0xFFEF4444);
+				} else {
+					int rgb = ColorHexUtils.parseRgb(track.colorGetter().get()).orElse(0xFFFFFF);
+					graphics.renderOutline(box.getX() - 1, box.getY() - 1, box.getWidth() + 2, box.getHeight() + 2, 0xFF000000 | rgb);
+				}
+			}
+		} finally {
+			graphics.disableScissor();
+		}
 	}
 
 	@Override

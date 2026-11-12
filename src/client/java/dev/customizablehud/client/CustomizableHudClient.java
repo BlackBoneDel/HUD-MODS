@@ -3,6 +3,7 @@ package dev.customizablehud.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.customizablehud.client.hud.ArmorHudRenderer;
 import dev.customizablehud.client.hud.EffectsHudRenderer;
+import dev.customizablehud.client.hud.LiveDataCollector;
 import dev.customizablehud.client.hud.VisibilityRules;
 import dev.customizablehud.client.i18n.ModI18n;
 import dev.customizablehud.client.screen.HudEditorScreen;
@@ -57,7 +58,10 @@ public final class CustomizableHudClient implements ClientModInitializer {
 		);
 
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> getConfigManager().flushPendingSaves());
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> getConfigManager().flushPendingSaves());
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			LiveDataCollector.clearLiveEffectTracking();
+			getConfigManager().flushPendingSaves();
+		});
 
 		KeyMapping.Category keyCategory = KeyMapping.Category.register(
 				Identifier.fromNamespaceAndPath(MOD_ID, "general")

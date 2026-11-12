@@ -6,15 +6,15 @@ import com.google.gson.JsonObject;
 /**
  * Handles one-time JSON schema migrations across mod versions.
  *
- * <p>Migration rules from schema v1/v2 (Alpha 2) to schema v3 (Alpha 2.1):
+ * <p>Migration rules:
  * <ul>
- *   <li>Because Alpha 2 configs did not track whether {@code armor.durabilityDisplayMode = "PERCENT_ONLY"}
- *       or {@code effects.showEffectBackground = true} were written as automatic defaults vs manually picked,
- *       upgrading a pre-v3 file once shifts those previous defaults to {@code POINTS_ONLY} and
- *       {@code showEffectBackground = false} while preserving explicit non-default choices ({@code NONE},
- *       {@code showEffectBackground = false}, custom colors including unloaded mods, positions, scale, etc.).</li>
- *   <li>Once saved at {@code schemaVersion = 3}, subsequent user changes (including choosing {@code PERCENT_ONLY}
- *       or enabling {@code showEffectBackground = true}) are never altered again.</li>
+ *   <li>Schema v1/v2 -> v3: upgrades legacy Alpha 2 defaults ({@code PERCENT_ONLY}, {@code showEffectBackground=true})
+ *       once to {@code POINTS_ONLY} and {@code showEffectBackground=false} while preserving explicit customizations.</li>
+ *   <li>Schema v1/v2/v3 -> v4 (Hud Utils): upgrades old 3-tier default colors ({@code #6EEB83}, {@code #FFE066})
+ *       and missing 4-tier fields ({@code veryHighThresholdPercent=95}, {@code veryHighColorHex=#FFFFFF},
+ *       {@code numberScale=1.0f}, {@code showLowDurabilityAlert=true}, {@code lowDurabilityAlertThresholdPercent=10}),
+ *       and migrates the old default Effects position ({@code TOP_LEFT} with zero offset) once to
+ *       {@code CENTER_RIGHT} while leaving custom/non-default positions untouched.</li>
  * </ul>
  */
 public final class ConfigMigrator {
@@ -118,6 +118,65 @@ public final class ConfigMigrator {
 					if (colorsEl.isJsonNull()) {
 						target.effects.customEffectColors.clear();
 					}
+				}
+			}
+		}
+
+		if (sourceVersion < 4) {
+			migrated = true;
+			if (target.armor != null) {
+				JsonObject armorObj = rawRoot.has("armor") && rawRoot.get("armor").isJsonObject()
+						? rawRoot.getAsJsonObject("armor")
+						: null;
+				if (armorObj == null || !armorObj.has("veryHighThresholdPercent")) {
+					target.armor.veryHighThresholdPercent = target.armor.warningThresholdPercent < 95
+							? 95
+							: Math.min(100, target.armor.warningThresholdPercent + 1);
+				}
+				if (armorObj == null || !armorObj.has("veryHighColorHex")) {
+					target.armor.veryHighColorHex = "#FFFFFF";
+				}
+				if ("#6EEB83".equalsIgnoreCase(target.armor.healthyColorHex)) {
+					target.armor.healthyColorHex = "#55FF55";
+				}
+				if ("#FFE066".equalsIgnoreCase(target.armor.warningColorHex)) {
+					target.armor.warningColorHex = "#FFFF55";
+				}
+				if (armorObj == null || !armorObj.has("numberScale")) {
+					target.armor.numberScale = 1.0f;
+				}
+				if (armorObj == null || !armorObj.has("showLowDurabilityAlert")) {
+					target.armor.showLowDurabilityAlert = true;
+				}
+				if (armorObj == null || !armorObj.has("lowDurabilityAlertThresholdPercent")) {
+					target.armor.lowDurabilityAlertThresholdPercent = 10;
+				}
+				if (armorObj == null || !armorObj.has("alertColorHex")) {
+					target.armor.alertColorHex = "#FF5555";
+				}
+			}
+
+			if (target.effects != null) {
+				JsonObject effectsObj = rawRoot.has("effects") && rawRoot.get("effects").isJsonObject()
+						? rawRoot.getAsJsonObject("effects")
+						: null;
+				// Only shift the old known default (TOP_LEFT with 0,0 offset) to CENTER_RIGHT.
+				// Any custom or non-default position/anchor is preserved verbatim.
+				if (effectsObj == null || !effectsObj.has("anchor")) {
+					target.effects.anchor = HudAnchor.CENTER_RIGHT;
+				} else if (target.effects.anchor == HudAnchor.TOP_LEFT
+						&& target.effects.offsetX == 0
+						&& target.effects.offsetY == 0) {
+					target.effects.anchor = HudAnchor.CENTER_RIGHT;
+				}
+				if (effectsObj == null || !effectsObj.has("potionHudMode") || target.effects.potionHudMode == null) {
+					target.effects.potionHudMode = PotionHudMode.NORMAL;
+				}
+				if (effectsObj == null || !effectsObj.has("potionMiniDisplay") || target.effects.potionMiniDisplay == null) {
+					target.effects.potionMiniDisplay = PotionMiniDisplayMode.TIMER_TEXT;
+				}
+				if (effectsObj == null || !effectsObj.has("backgroundOpacityPercent")) {
+					target.effects.backgroundOpacityPercent = 65;
 				}
 			}
 		}

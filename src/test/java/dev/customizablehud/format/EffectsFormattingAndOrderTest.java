@@ -3,7 +3,11 @@ package dev.customizablehud.format;
 import dev.customizablehud.config.EffectColorOverride;
 import dev.customizablehud.config.EffectSortMode;
 import dev.customizablehud.config.EffectsConfig;
+import dev.customizablehud.config.EffectsVisualStyle;
+import dev.customizablehud.config.HudAnchor;
 import dev.customizablehud.config.LevelFormat;
+import dev.customizablehud.config.PotionHudMode;
+import dev.customizablehud.config.PotionMiniDisplayMode;
 import dev.customizablehud.config.VanillaEffectsMode;
 import java.util.List;
 import java.util.OptionalInt;
@@ -40,7 +44,7 @@ class EffectsFormattingAndOrderTest {
 	}
 
 	@Test
-	void formatsDurationsIncludingHoursInfiniteAndVariableTps() {
+	void formatsDurationsIncludingHoursInfiniteVariableTpsAndSuspendedTicks() {
 		assertEquals("0:00", DurationFormatter.formatTicks(0, 20.0f, false));
 		assertEquals("0:09", DurationFormatter.formatTicks(185, 20.0f, false));
 		assertEquals("2:34", DurationFormatter.formatTicks(3080, 20.0f, false));
@@ -52,6 +56,48 @@ class EffectsFormattingAndOrderTest {
 		assertEquals("0:10", DurationFormatter.formatTicks(100, 10.0f, false));
 		// Invalid TPS safely falls back to 20 TPS
 		assertEquals("0:05", DurationFormatter.formatTicks(100, 0.0f, false));
+
+		// Suspended/frozen ticks never present finite timer as an active exact countdown
+		assertEquals("~0:42", DurationFormatter.formatTicks(840, 20.0f, false, true));
+		assertEquals("∞", DurationFormatter.formatTicks(-1, 20.0f, true, true));
+	}
+
+	@Test
+	void tracksRealRemainingTickFractionsWithoutFabricatingStaticMaxDurations() {
+		EffectDurationTracker tracker = new EffectDurationTracker();
+
+		EffectSnapshot start = new EffectSnapshot(
+				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 600, false, false, true, true, 0xCD5CAB
+		);
+		EffectSnapshot infinite = new EffectSnapshot(
+				"minecraft:night_vision", "Night Vision", EffectCategoryKind.BENEFICIAL, 0, -1, true, false, false, true, 0x1F1FA1
+		);
+		tracker.syncAndObserve(List.of(start, infinite));
+		assertEquals(1.0f, tracker.remainingFraction(start), 0.0001f);
+		assertEquals(1.0f, tracker.remainingFraction(infinite), 0.0001f);
+
+		// Halfway through observed duration -> 0.50f
+		EffectSnapshot half = new EffectSnapshot(
+				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 300, false, false, true, true, 0xCD5CAB
+		);
+		tracker.syncAndObserve(List.of(half, infinite));
+		assertEquals(600, tracker.observedPeakTicks(half));
+		assertEquals(0.5f, tracker.remainingFraction(half), 0.0001f);
+
+		// Re-applying potion raises observed peak cleanly
+		EffectSnapshot refreshed = new EffectSnapshot(
+				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 900, false, false, true, true, 0xCD5CAB
+		);
+		tracker.syncAndObserve(List.of(refreshed));
+		assertEquals(900, tracker.observedPeakTicks(refreshed));
+		assertEquals(1.0f, tracker.remainingFraction(refreshed), 0.0001f);
+
+		// Expired effect purged when no longer active
+		tracker.syncAndObserve(List.of());
+		EffectSnapshot expired = new EffectSnapshot(
+				"minecraft:regeneration", "Regeneration", EffectCategoryKind.BENEFICIAL, 0, 0, false, false, true, true, 0xCD5CAB
+		);
+		assertEquals(0.0f, tracker.remainingFraction(expired), 0.0001f);
 	}
 
 	@Test
@@ -104,21 +150,36 @@ class EffectsFormattingAndOrderTest {
 	}
 
 	@Test
-	void usesNativeEffectColorAutomaticallyByDefaultSupportsReadableFallbackAndCustomOverrides() {
+	void usesCenterRightTransparentDefaultsNativeColorsAndPreservesUntintedIcons() {
 		EffectsConfig config = new EffectsConfig();
+		assertEquals(HudAnchor.CENTER_RIGHT, config.anchor);
 		assertFalse(config.showEffectBackground);
 		assertTrue(config.showEffectBorder);
+		assertTrue(config.hideLevelOne);
+		assertEquals(LevelFormat.ROMAN, config.levelFormat);
+		assertEquals(EffectsVisualStyle.MINECRAFT_COMPACT, config.style);
+		assertEquals(PotionHudMode.NORMAL, config.potionHudMode);
+		assertEquals(PotionMiniDisplayMode.TIMER_TEXT, config.potionMiniDisplay);
+		assertEquals(65, config.backgroundOpacityPercent);
 		assertTrue(config.customEffectColors.isEmpty());
 		assertEquals(VanillaEffectsMode.SHOW_BOTH, config.vanillaEffectsMode);
 
-		// All 4 combinations of independent background/border toggles copy cleanly
+		// All 4 combinations of independent background/border toggles + PotionHUD options copy cleanly
 		for (boolean bg : new boolean[]{false, true}) {
 			for (boolean border : new boolean[]{false, true}) {
 				config.showEffectBackground = bg;
 				config.showEffectBorder = border;
+				config.style = EffectsVisualStyle.POTION_HUD;
+				config.potionHudMode = PotionHudMode.MINI;
+				config.potionMiniDisplay = PotionMiniDisplayMode.DURATION_BAR;
+				config.backgroundOpacityPercent = 42;
 				EffectsConfig copy = config.copy();
 				assertEquals(bg, copy.showEffectBackground);
 				assertEquals(border, copy.showEffectBorder);
+				assertEquals(EffectsVisualStyle.POTION_HUD, copy.style);
+				assertEquals(PotionHudMode.MINI, copy.potionHudMode);
+				assertEquals(PotionMiniDisplayMode.DURATION_BAR, copy.potionMiniDisplay);
+				assertEquals(42, copy.backgroundOpacityPercent);
 			}
 		}
 
@@ -144,7 +205,6 @@ class EffectsFormattingAndOrderTest {
 				"minecraft:blindness", "Blindness", EffectCategoryKind.HARMFUL, 0, 400, false, false, true, true, 0x1F1F23
 		);
 
-		// Without custom overrides, each effect automatically uses its own Minecraft native color
 		assertEquals(0xFF33EBFF, EffectsColorResolver.titleColorArgb(speed, config));
 		assertEquals(0xFF33EBFF, EffectsColorResolver.durationColorArgb(speed, config, 20.0f));
 		assertEquals(0xFFCD5CAB, EffectsColorResolver.titleColorArgb(regen, config));
@@ -153,11 +213,9 @@ class EffectsFormattingAndOrderTest {
 		assertEquals(0xFF3366FF, EffectsColorResolver.titleColorArgb(modded, config));
 		assertNotEquals(EffectsColorResolver.titleColorArgb(speed, config), EffectsColorResolver.titleColorArgb(regen, config));
 
-		// Untinted / zero-color effects use a readable fallback instead of black or hardcoded pink
 		assertFalse(EffectsColorResolver.hasNativeColor(untinted.colorRgb()));
 		assertEquals(0xFF000000 | EffectsColorResolver.UNREADABLE_FALLBACK_RGB, EffectsColorResolver.titleColorArgb(untinted, config));
 
-		// Very dark native effects (like Blindness) are brightened smoothly to remain readable without background cards
 		int blindArgb = EffectsColorResolver.titleColorArgb(darkNative, config);
 		int r = (blindArgb >> 16) & 0xFF;
 		int g = (blindArgb >> 8) & 0xFF;
@@ -165,7 +223,6 @@ class EffectsFormattingAndOrderTest {
 		float lum = (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255.0f;
 		assertTrue(lum >= EffectsColorResolver.MIN_READABLE_LUMINANCE);
 
-		// Custom override works per effect for text/timer and disables cleanly without losing hex
 		config.customEffectColors.put("minecraft:regeneration", new EffectColorOverride(true, "#FF66B2"));
 		config.customEffectColors.put("examplemod:mana_regen", new EffectColorOverride(false, "#55FFFF"));
 
@@ -179,7 +236,6 @@ class EffectsFormattingAndOrderTest {
 		assertEquals(0xFFE6EDF3, EffectsColorResolver.durationColorArgb(modded, config, 20.0f));
 		assertEquals(0xFFFF66B2, EffectsColorResolver.durationColorArgb(regen, config, 20.0f));
 
-		// Icons remain pure white untinted (alpha only) regardless of automatic or custom colors
 		assertEquals(0xFFFFFFFF, EffectsColorResolver.iconTintArgb(1.0f));
 	}
 }

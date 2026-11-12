@@ -52,6 +52,11 @@ def check_metadata_and_resources(repo_root: Path) -> dict:
 
     if mod_meta.get("id") != "customizablehud":
         raise RuntimeError(f"Expected mod id 'customizablehud', got {mod_meta.get('id')!r}")
+    if mod_meta.get("name") != "Hud Utils":
+        raise RuntimeError(f"Expected mod name 'Hud Utils', got {mod_meta.get('name')!r}")
+    authors = mod_meta.get("authors") or []
+    if "Denvdrite" not in authors:
+        raise RuntimeError(f"Expected author 'Denvdrite' in fabric.mod.json, got {authors!r}")
     if mod_meta.get("environment") != "client":
         raise RuntimeError(f"Expected client environment, got {mod_meta.get('environment')!r}")
 

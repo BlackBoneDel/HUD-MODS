@@ -5,14 +5,17 @@ import java.util.Map;
 
 public final class EffectsConfig {
 	public boolean enabled = true;
-	public HudAnchor anchor = HudAnchor.TOP_LEFT;
+	public HudAnchor anchor = HudAnchor.CENTER_RIGHT;
 	public int offsetX = 0;
 	public int offsetY = 0;
 	public float scale = 1.0f;
 	public HudOrientation orientation = HudOrientation.VERTICAL;
 	public EffectsVisualStyle style = EffectsVisualStyle.MINECRAFT_COMPACT;
+	public PotionHudMode potionHudMode = PotionHudMode.NORMAL;
+	public PotionMiniDisplayMode potionMiniDisplay = PotionMiniDisplayMode.TIMER_TEXT;
 	public int rowSpacing = 2;
 	public boolean showEffectBackground = false;
+	public int backgroundOpacityPercent = 65;
 	public boolean showEffectBorder = true;
 	public boolean showIcon = true;
 	public boolean showName = true;
@@ -37,8 +40,11 @@ public final class EffectsConfig {
 		copy.scale = scale;
 		copy.orientation = orientation;
 		copy.style = style;
+		copy.potionHudMode = potionHudMode;
+		copy.potionMiniDisplay = potionMiniDisplay;
 		copy.rowSpacing = rowSpacing;
 		copy.showEffectBackground = showEffectBackground;
+		copy.backgroundOpacityPercent = backgroundOpacityPercent;
 		copy.showEffectBorder = showEffectBorder;
 		copy.showIcon = showIcon;
 		copy.showName = showName;

@@ -360,7 +360,7 @@ public final class HudEditorScreen extends AbstractCustomizableScreen {
 			workingConfig.armor.scale = 1.0f;
 			workingConfig.armor.individualOffsets = ArmorConfig.createDefaultIndividualOffsets();
 		} else {
-			workingConfig.effects.anchor = HudAnchor.TOP_LEFT;
+			workingConfig.effects.anchor = HudAnchor.CENTER_RIGHT;
 			workingConfig.effects.offsetX = 0;
 			workingConfig.effects.offsetY = 0;
 			workingConfig.effects.scale = 1.0f;

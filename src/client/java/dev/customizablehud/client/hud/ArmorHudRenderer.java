@@ -34,7 +34,7 @@ import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix3x2fStack;
 
 public final class ArmorHudRenderer {
-	private static final Identifier HOTBAR_OFFHAND_LEFT_SPRITE = Identifier.withDefaultNamespace("hud/hotbar_offhand_left");
+	private static final Identifier HOTBAR_SPRITE = Identifier.withDefaultNamespace("hud/hotbar");
 	private static final Identifier INVENTORY_SLOT_SPRITE = Identifier.withDefaultNamespace("container/slot");
 	private static final System.Logger LOGGER = System.getLogger("CustomizableHUD/ArmorRenderer");
 	private static long lastErrorLogMs = Long.MIN_VALUE;
@@ -150,14 +150,18 @@ public final class ArmorHudRenderer {
 			List<LiveDataCollector.ArmorRenderEntry> entries
 	) {
 		List<ArmorSlotMetric> metrics = new ArrayList<>(entries.size());
+		int fontLineH = Math.max(5, font.lineHeight);
 		for (LiveDataCollector.ArmorRenderEntry entry : entries) {
 			String label = DurabilityFormatter.format(entry.snapshot(), config);
 			String name = DurabilityFormatter.formatItemName(entry.snapshot(), config);
+			boolean alertActive = DurabilityFormatter.isAlertActive(entry.snapshot(), config);
 			metrics.add(new ArmorSlotMetric(
 					entry.kind(),
 					entry.snapshot().present(),
 					label.isEmpty() ? 0 : font.width(label),
-					name.isEmpty() ? 0 : font.width(name)
+					name.isEmpty() ? 0 : font.width(name),
+					fontLineH,
+					alertActive
 			));
 		}
 		return metrics;
@@ -330,8 +334,6 @@ public final class ArmorHudRenderer {
 			drawSlotText(graphics, font, config, entry, placement, cellX, cellY, name, label, nowMs, alpha);
 		}
 
-		DurabilityFormatter.WarningBlinkState blink = DurabilityFormatter.computeWarningBlink(entry.snapshot(), config, nowMs);
-
 		if (config.showIcon && boxSize > 0) {
 			if (drawSlotBox) {
 				drawSlotBackground(graphics, config.style, entry.kind(), iconBoxX, iconBoxY, boxSize, alpha);
@@ -355,12 +357,21 @@ public final class ArmorHudRenderer {
 					graphics.blitSprite(RenderPipelines.GUI_TEXTURED, emptySprite, itemX, itemY, 16, 16, ARGB.white(0.42f * alpha));
 				}
 			}
+		}
 
-			if (blink.active()) {
-				drawWarningIndicator(graphics, iconBoxX, iconBoxY, boxSize, boxSize, blink, alpha);
-			}
-		} else if (blink.active()) {
-			drawWarningIndicator(graphics, cellX, cellY, placement.unscaledWidth(), placement.unscaledHeight(), blink, alpha);
+		if (placement.alertActive() && config.showLowDurabilityAlert && DurabilityFormatter.isAlertActive(entry.snapshot(), config)) {
+			DurabilityFormatter.WarningBlinkState blink = DurabilityFormatter.computeWarningBlink(entry.snapshot(), config, nowMs);
+			float badgeAlpha = blink.active()
+					? Math.max(0.0f, Math.min(1.0f, blink.indicatorAlpha() * alpha))
+					: alpha;
+			int alertRgb = DurabilityFormatter.alertColorArgb(config) & 0x00FFFFFF;
+			drawLowDurabilityAlertBadge(
+					graphics,
+					cellX + placement.alertOffsetX(),
+					cellY + placement.alertOffsetY(),
+					alertRgb,
+					badgeAlpha
+			);
 		}
 	}
 
@@ -380,33 +391,41 @@ public final class ArmorHudRenderer {
 		ArmorMetricPosition metricPos = placement.metricPosition() != null
 				? placement.metricPosition()
 				: ArmorMetricPosition.ABOVE;
-		float textScale = HudLayoutEngine.HORIZONTAL_ARMOR_TEXT_SCALE;
+		float numberScale = placement.numberTextScale() > 0.0f
+				? placement.numberTextScale()
+				: HudLayoutEngine.effectiveArmorNumberScale(config);
+		int numberLineH = placement.numberLineHeight() > 0
+				? placement.numberLineHeight()
+				: HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT;
 		int nameColor = ARGB.color(alpha, 0xFFE5E9F0);
 		int labelColor = ARGB.multiplyAlpha(DurabilityFormatter.textColorArgb(entry.snapshot(), config, nowMs), alpha);
 
-		record TextLine(String text, int color) {
+		record TextLine(String text, int color, float scale, int lineHeight) {
 		}
 		List<TextLine> lines = new ArrayList<>(2);
 		if (metricPos == ArmorMetricPosition.BELOW) {
-			// Keep metric immediately adjacent to icon bottom, then item name below if enabled
 			if (!label.isEmpty()) {
-				lines.add(new TextLine(label, labelColor));
+				lines.add(new TextLine(label, labelColor, numberScale, numberLineH));
 			}
 			if (!name.isEmpty()) {
-				lines.add(new TextLine(name, nameColor));
+				lines.add(new TextLine(name, nameColor, HudLayoutEngine.HORIZONTAL_ARMOR_TEXT_SCALE, HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT));
 			}
 		} else {
 			if (!name.isEmpty()) {
-				lines.add(new TextLine(name, nameColor));
+				lines.add(new TextLine(name, nameColor, HudLayoutEngine.HORIZONTAL_ARMOR_TEXT_SCALE, HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT));
 			}
 			if (!label.isEmpty()) {
-				lines.add(new TextLine(label, labelColor));
+				lines.add(new TextLine(label, labelColor, numberScale, numberLineH));
 			}
 		}
 
 		int textAreaX = cellX + placement.textOffsetX();
 		int textY = cellY + placement.textOffsetY();
 		int areaW = Math.max(1, placement.textAreaWidth());
+		int boxSize = placement.slotBoxSize();
+		float verticalCenterX = boxSize > 0
+				? cellX + placement.iconOffsetX() + (boxSize / 2.0f)
+				: textAreaX + (areaW / 2.0f);
 		Matrix3x2fStack pose = graphics.pose();
 
 		for (TextLine line : lines) {
@@ -423,48 +442,64 @@ public final class ArmorHudRenderer {
 					drawOffsetX = 0;
 				}
 				case ABOVE, BELOW -> {
-					anchorX = textAreaX + (areaW / 2.0f);
-					drawOffsetX = -w / 2;
+					anchorX = verticalCenterX;
+					drawOffsetX = -Math.round(w / 2.0f);
 				}
 				default -> {
-					anchorX = textAreaX + (areaW / 2.0f);
-					drawOffsetX = -w / 2;
+					anchorX = verticalCenterX;
+					drawOffsetX = -Math.round(w / 2.0f);
 				}
 			}
 
 			pose.pushMatrix();
 			try {
 				pose.translate(anchorX, textY);
-				pose.scale(textScale, textScale);
+				pose.scale(line.scale(), line.scale());
 				graphics.drawString(font, line.text(), drawOffsetX, 0, line.color(), true);
 			} finally {
 				pose.popMatrix();
 			}
-			textY += HudLayoutEngine.ARMOR_TEXT_LINE_HEIGHT;
+			textY += line.lineHeight();
 		}
 	}
 
-	private static void drawWarningIndicator(
+	/**
+	 * Renders an original 7x8 pixel-art octagonal warning badge with a centered crisp '!' symbol,
+	 * inspired by Uku's Armor HUD low-durability warning position.
+	 */
+	private static void drawLowDurabilityAlertBadge(
 			GuiGraphics graphics,
 			int x,
 			int y,
-			int w,
-			int h,
-			DurabilityFormatter.WarningBlinkState blink,
-			float moduleAlpha
+			int fillRgb,
+			float alpha
 	) {
-		if (w <= 2 || h <= 2) {
-			return;
-		}
-		float warnAlpha = Math.max(0.0f, Math.min(1.0f, blink.indicatorAlpha() * moduleAlpha));
-		int outlineColor = ARGB.color(warnAlpha, blink.indicatorRgb());
-		graphics.renderOutline(x, y, w, h, outlineColor);
+		int r = (fillRgb >> 16) & 0xFF;
+		int g = (fillRgb >> 8) & 0xFF;
+		int b = fillRgb & 0xFF;
+		int borderRgb = ((Math.max(24, r / 3) & 0xFF) << 16)
+				| ((Math.max(8, g / 3) & 0xFF) << 8)
+				| (Math.max(8, b / 3) & 0xFF);
+		int highlightRgb = 0xFFF7F7;
 
-		if (w >= 8 && h >= 8) {
-			int cornerRgb = blink.highPhase() ? 0xFFE066 : blink.indicatorRgb();
-			int badgeColor = ARGB.color(warnAlpha, cornerRgb);
-			graphics.fill(x + w - 4, y + 1, x + w - 1, y + 4, badgeColor);
-		}
+		int border = ARGB.color(alpha, borderRgb);
+		int fill = ARGB.color(alpha, fillRgb);
+		int mark = ARGB.color(alpha, highlightRgb);
+
+		// Octagonal 7x8 border + fill
+		graphics.fill(x + 2, y, x + 5, y + 1, border);
+		graphics.fill(x + 1, y + 1, x + 6, y + 2, border);
+		graphics.fill(x, y + 2, x + 7, y + 6, border);
+		graphics.fill(x + 1, y + 6, x + 6, y + 7, border);
+		graphics.fill(x + 2, y + 7, x + 5, y + 8, border);
+
+		graphics.fill(x + 2, y + 1, x + 5, y + 2, fill);
+		graphics.fill(x + 1, y + 2, x + 6, y + 6, fill);
+		graphics.fill(x + 2, y + 6, x + 5, y + 7, fill);
+
+		// Centered crisp 1x3 stem + 1x1 spacer + 1x1 dot '!'
+		graphics.fill(x + 3, y + 1, x + 4, y + 4, mark);
+		graphics.fill(x + 3, y + 5, x + 4, y + 6, mark);
 	}
 
 	private static void drawContinuousOuterFrame(
@@ -478,13 +513,7 @@ public final class ArmorHudRenderer {
 	) {
 		ArmorVisualStyle safeStyle = style != null ? style : ArmorVisualStyle.VANILLA_HOTBAR;
 		switch (safeStyle) {
-			case VANILLA_HOTBAR -> {
-				graphics.fill(x + 1, y + 1, x + w - 1, y + h - 1, ARGB.colorFromFloat(0.62f * alpha, 0.08f, 0.09f, 0.12f));
-				graphics.renderOutline(x, y, w, h, ARGB.colorFromFloat(0.85f * alpha, 0.36f, 0.39f, 0.44f));
-				if (w > 2 && h > 2) {
-					graphics.renderOutline(x + 1, y + 1, w - 2, h - 2, ARGB.colorFromFloat(0.45f * alpha, 0.12f, 0.14f, 0.18f));
-				}
-			}
+			case VANILLA_HOTBAR -> drawVanillaHotbarStrip(graphics, x, y, w, h, alpha);
 			case INVENTORY_SLOT -> {
 				graphics.fill(x + 1, y + 1, x + w - 1, y + h - 1, ARGB.colorFromFloat(0.75f * alpha, 0.545f, 0.545f, 0.545f));
 				int darkBevel = ARGB.colorFromFloat(0.92f * alpha, 0.215f, 0.215f, 0.215f);
@@ -502,6 +531,54 @@ public final class ArmorHudRenderer {
 		}
 	}
 
+	private static void drawVanillaHotbarSquare(GuiGraphics graphics, int x, int y, int boxSize, float alpha) {
+		int tint = ARGB.white(alpha);
+		int half = boxSize / 2;
+		int rem = boxSize - half;
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 0, 0, x, y, half, half, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 182 - rem, 0, x + half, y, rem, half, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 0, 22 - rem, x, y + half, half, rem, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 182 - rem, 22 - rem, x + half, y + half, rem, rem, tint);
+	}
+
+	private static void drawVanillaHotbarStrip(GuiGraphics graphics, int x, int y, int w, int h, float alpha) {
+		int tint = ARGB.white(alpha);
+		if (w <= 20 && h <= 20) {
+			drawVanillaHotbarSquare(graphics, x, y, Math.min(w, h), alpha);
+			return;
+		}
+		int border = 2;
+		int innerW = Math.max(0, w - border * 2);
+		int innerH = Math.max(0, h - border * 2);
+
+		// Corners
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 0, 0, x, y, border, border, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 180, 0, x + w - border, y, border, border, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 0, 20, x, y + h - border, border, border, tint);
+		graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 180, 20, x + w - border, y + h - border, border, border, tint);
+
+		// Top & bottom borders tiled from clean 16px span inside slot 0
+		for (int dx = 0; dx < innerW; dx += 16) {
+			int segW = Math.min(16, innerW - dx);
+			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 2, 0, x + border + dx, y, segW, border, tint);
+			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 2, 20, x + border + dx, y + h - border, segW, border, tint);
+		}
+		// Left & right borders tiled cleanly
+		for (int dy = 0; dy < innerH; dy += 16) {
+			int segH = Math.min(16, innerH - dy);
+			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 0, 2, x, y + border + dy, border, segH, tint);
+			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 180, 2, x + w - border, y + border + dy, border, segH, tint);
+		}
+		// Translucent hotbar interior without internal dividers
+		for (int dy = 0; dy < innerH; dy += 16) {
+			int segH = Math.min(16, innerH - dy);
+			for (int dx = 0; dx < innerW; dx += 16) {
+				int segW = Math.min(16, innerW - dx);
+				graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR_SPRITE, 182, 22, 2, 2, x + border + dx, y + border + dy, segW, segH, tint);
+			}
+		}
+	}
+
 	private static void drawSlotBackground(
 			GuiGraphics graphics,
 			ArmorVisualStyle style,
@@ -513,19 +590,7 @@ public final class ArmorHudRenderer {
 	) {
 		ArmorVisualStyle safeStyle = style != null ? style : ArmorVisualStyle.VANILLA_HOTBAR;
 		switch (safeStyle) {
-			case VANILLA_HOTBAR -> graphics.blitSprite(
-					RenderPipelines.GUI_TEXTURED,
-					HOTBAR_OFFHAND_LEFT_SPRITE,
-					29,
-					24,
-					0,
-					1,
-					x,
-					y,
-					boxSize,
-					boxSize,
-					ARGB.white(alpha)
-			);
+			case VANILLA_HOTBAR -> drawVanillaHotbarSquare(graphics, x, y, boxSize, alpha);
 			case INVENTORY_SLOT -> graphics.blitSprite(
 					RenderPipelines.GUI_TEXTURED,
 					INVENTORY_SLOT_SPRITE,

@@ -167,11 +167,11 @@ def verify_zip(output_zip: Path) -> tuple[int, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Package Customizable HUD source tree into a reproducible ZIP.")
+    parser = argparse.ArgumentParser(description="Package Hud Utils source tree into a reproducible ZIP.")
     parser.add_argument(
         "--output",
-        default="dist/customizablehud-source.zip",
-        help="Output ZIP path relative to repository root (default: dist/customizablehud-source.zip)",
+        default="dist/hud-utils-source.zip",
+        help="Output ZIP path relative to repository root (default: dist/hud-utils-source.zip)",
     )
     args = parser.parse_args()
 

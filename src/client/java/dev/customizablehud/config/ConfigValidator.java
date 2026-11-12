@@ -12,15 +12,23 @@ import java.util.regex.Pattern;
 public final class ConfigValidator {
 	public static final float MIN_SCALE = 0.50f;
 	public static final float MAX_SCALE = 2.50f;
+	public static final float MIN_NUMBER_SCALE = 0.50f;
+	public static final float MAX_NUMBER_SCALE = 2.00f;
 	public static final int MIN_ARMOR_SPACING = -4;
 	public static final int MIN_SPACING = 0;
 	public static final int MAX_SPACING = 16;
 	public static final int MIN_OFFSET = -4000;
 	public static final int MAX_OFFSET = 4000;
 	public static final int MIN_CRITICAL_THRESHOLD = 0;
-	public static final int MAX_CRITICAL_THRESHOLD = 99;
+	public static final int MAX_CRITICAL_THRESHOLD = 98;
 	public static final int MIN_WARNING_THRESHOLD = 1;
-	public static final int MAX_WARNING_THRESHOLD = 100;
+	public static final int MAX_WARNING_THRESHOLD = 99;
+	public static final int MIN_VERY_HIGH_THRESHOLD = 2;
+	public static final int MAX_VERY_HIGH_THRESHOLD = 100;
+	public static final int MIN_ALERT_THRESHOLD = 1;
+	public static final int MAX_ALERT_THRESHOLD = 99;
+	public static final int MIN_OPACITY_PERCENT = 0;
+	public static final int MAX_OPACITY_PERCENT = 100;
 	public static final int MIN_GRID_SIZE = 1;
 	public static final int MAX_GRID_SIZE = 32;
 
@@ -127,6 +135,12 @@ public final class ConfigValidator {
 			modified = true;
 		}
 
+		float clampedNumberScale = clampNumberScale(armor.numberScale);
+		if (Float.compare(clampedNumberScale, armor.numberScale) != 0) {
+			armor.numberScale = clampedNumberScale;
+			modified = true;
+		}
+
 		int clampedSpacing = clampInt(armor.slotSpacing, MIN_ARMOR_SPACING, MAX_SPACING);
 		if (clampedSpacing != armor.slotSpacing) {
 			armor.slotSpacing = clampedSpacing;
@@ -141,29 +155,53 @@ public final class ConfigValidator {
 			modified = true;
 		}
 
+		int clampedVeryHigh = clampInt(armor.veryHighThresholdPercent, MIN_VERY_HIGH_THRESHOLD, MAX_VERY_HIGH_THRESHOLD);
 		int clampedWarn = clampInt(armor.warningThresholdPercent, MIN_WARNING_THRESHOLD, MAX_WARNING_THRESHOLD);
 		int clampedCrit = clampInt(armor.criticalThresholdPercent, MIN_CRITICAL_THRESHOLD, MAX_CRITICAL_THRESHOLD);
-		if (clampedWarn != armor.warningThresholdPercent || clampedCrit != armor.criticalThresholdPercent) {
+		if (clampedVeryHigh != armor.veryHighThresholdPercent
+				|| clampedWarn != armor.warningThresholdPercent
+				|| clampedCrit != armor.criticalThresholdPercent) {
+			armor.veryHighThresholdPercent = clampedVeryHigh;
 			armor.warningThresholdPercent = clampedWarn;
 			armor.criticalThresholdPercent = clampedCrit;
 			modified = true;
 		}
-		if (armor.criticalThresholdPercent >= armor.warningThresholdPercent) {
-			if (armor.warningThresholdPercent > MIN_CRITICAL_THRESHOLD) {
-				armor.criticalThresholdPercent = armor.warningThresholdPercent - 1;
-			} else {
-				armor.criticalThresholdPercent = 20;
+		if (armor.warningThresholdPercent >= armor.veryHighThresholdPercent) {
+			armor.warningThresholdPercent = Math.max(MIN_WARNING_THRESHOLD, armor.veryHighThresholdPercent - 1);
+			if (armor.warningThresholdPercent >= armor.veryHighThresholdPercent) {
+				armor.veryHighThresholdPercent = 95;
 				armor.warningThresholdPercent = 60;
+				armor.criticalThresholdPercent = 20;
+			}
+			modified = true;
+		}
+		if (armor.criticalThresholdPercent >= armor.warningThresholdPercent) {
+			armor.criticalThresholdPercent = Math.max(MIN_CRITICAL_THRESHOLD, armor.warningThresholdPercent - 1);
+			if (armor.criticalThresholdPercent >= armor.warningThresholdPercent) {
+				armor.veryHighThresholdPercent = 95;
+				armor.warningThresholdPercent = 60;
+				armor.criticalThresholdPercent = 20;
 			}
 			modified = true;
 		}
 
-		String healthy = ColorHexUtils.normalizeOrDefault(armor.healthyColorHex, "#6EEB83");
+		int clampedAlert = clampInt(armor.lowDurabilityAlertThresholdPercent, MIN_ALERT_THRESHOLD, MAX_ALERT_THRESHOLD);
+		if (clampedAlert != armor.lowDurabilityAlertThresholdPercent) {
+			armor.lowDurabilityAlertThresholdPercent = clampedAlert;
+			modified = true;
+		}
+
+		String veryHigh = ColorHexUtils.normalizeOrDefault(armor.veryHighColorHex, "#FFFFFF");
+		if (!veryHigh.equals(armor.veryHighColorHex)) {
+			armor.veryHighColorHex = veryHigh;
+			modified = true;
+		}
+		String healthy = ColorHexUtils.normalizeOrDefault(armor.healthyColorHex, "#55FF55");
 		if (!healthy.equals(armor.healthyColorHex)) {
 			armor.healthyColorHex = healthy;
 			modified = true;
 		}
-		String warning = ColorHexUtils.normalizeOrDefault(armor.warningColorHex, "#FFE066");
+		String warning = ColorHexUtils.normalizeOrDefault(armor.warningColorHex, "#FFFF55");
 		if (!warning.equals(armor.warningColorHex)) {
 			armor.warningColorHex = warning;
 			modified = true;
@@ -171,6 +209,11 @@ public final class ConfigValidator {
 		String critical = ColorHexUtils.normalizeOrDefault(armor.criticalColorHex, "#FF5555");
 		if (!critical.equals(armor.criticalColorHex)) {
 			armor.criticalColorHex = critical;
+			modified = true;
+		}
+		String alertColor = ColorHexUtils.normalizeOrDefault(armor.alertColorHex, "#FF5555");
+		if (!alertColor.equals(armor.alertColorHex)) {
+			armor.alertColorHex = alertColor;
 			modified = true;
 		}
 
@@ -220,7 +263,7 @@ public final class ConfigValidator {
 	private static boolean sanitizeEffects(EffectsConfig effects) {
 		boolean modified = false;
 		if (effects.anchor == null) {
-			effects.anchor = HudAnchor.TOP_LEFT;
+			effects.anchor = HudAnchor.CENTER_RIGHT;
 			modified = true;
 		}
 		if (effects.orientation == null) {
@@ -229,6 +272,14 @@ public final class ConfigValidator {
 		}
 		if (effects.style == null) {
 			effects.style = EffectsVisualStyle.MINECRAFT_COMPACT;
+			modified = true;
+		}
+		if (effects.potionHudMode == null) {
+			effects.potionHudMode = PotionHudMode.NORMAL;
+			modified = true;
+		}
+		if (effects.potionMiniDisplay == null) {
+			effects.potionMiniDisplay = PotionMiniDisplayMode.TIMER_TEXT;
 			modified = true;
 		}
 		if (effects.levelFormat == null) {
@@ -253,6 +304,12 @@ public final class ConfigValidator {
 		int clampedSpacing = clampInt(effects.rowSpacing, MIN_SPACING, MAX_SPACING);
 		if (clampedSpacing != effects.rowSpacing) {
 			effects.rowSpacing = clampedSpacing;
+			modified = true;
+		}
+
+		int clampedOpacity = clampInt(effects.backgroundOpacityPercent, MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT);
+		if (clampedOpacity != effects.backgroundOpacityPercent) {
+			effects.backgroundOpacityPercent = clampedOpacity;
 			modified = true;
 		}
 
@@ -293,10 +350,18 @@ public final class ConfigValidator {
 	}
 
 	public static float clampScale(float value) {
-		if (!Float.isFinite(value)) {
+		if (!Float.isFinite(value) || value <= 0.0f) {
 			return 1.0f;
 		}
 		float clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
+		return Math.round(clamped * 100.0f) / 100.0f;
+	}
+
+	public static float clampNumberScale(float value) {
+		if (!Float.isFinite(value) || value <= 0.0f) {
+			return 1.0f;
+		}
+		float clamped = Math.max(MIN_NUMBER_SCALE, Math.min(MAX_NUMBER_SCALE, value));
 		return Math.round(clamped * 100.0f) / 100.0f;
 	}
 

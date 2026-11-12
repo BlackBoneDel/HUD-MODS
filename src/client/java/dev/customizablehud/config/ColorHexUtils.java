@@ -21,9 +21,11 @@ public final class ColorHexUtils {
 			new PaletteColor("#F8FAFC", "customizablehud.color.white")
 	);
 
-	public static final List<String> HEALTHY_COLOR_PRESETS = List.of("#6EEB83", "#55FF55", "#34D399", "#38BDF8");
-	public static final List<String> WARNING_COLOR_PRESETS = List.of("#FFE066", "#FACC15", "#FFA94D", "#FB923C");
+	public static final List<String> VERY_HIGH_COLOR_PRESETS = List.of("#FFFFFF", "#F8FAFC", "#E2E8F0", "#7DD3FC");
+	public static final List<String> HEALTHY_COLOR_PRESETS = List.of("#55FF55", "#6EEB83", "#34D399", "#38BDF8");
+	public static final List<String> WARNING_COLOR_PRESETS = List.of("#FFFF55", "#FFE066", "#FACC15", "#FFA94D");
 	public static final List<String> CRITICAL_COLOR_PRESETS = List.of("#FF5555", "#F87171", "#EF4444", "#FF66B2");
+	public static final List<String> ALERT_COLOR_PRESETS = List.of("#FF5555", "#FF3333", "#F87171", "#FFA94D");
 
 	private ColorHexUtils() {
 	}

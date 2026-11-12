@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 
-Write-Host "=== Customizable HUD - Local Build & Validation (Windows PowerShell) ==="
+Write-Host "=== Hud Utils - Local Build & Validation (Windows PowerShell) ==="
 
 $javaCmd = Get-Command java -ErrorAction SilentlyContinue
 if (-not $javaCmd) {
@@ -64,7 +64,7 @@ if ($pythonCmd) {
     & $pythonCmd.Source scripts/validate-jar.py
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
-    $jarPath = Join-Path $RootDir "build\libs\customizablehud-1.0.0.jar"
+    $jarPath = Join-Path $RootDir "build\libs\hud-utils-1.0.0.jar"
     if (-not (Test-Path $jarPath)) {
         Write-Error "ERROR: No se encontró el JAR esperado en $jarPath"
         exit 1

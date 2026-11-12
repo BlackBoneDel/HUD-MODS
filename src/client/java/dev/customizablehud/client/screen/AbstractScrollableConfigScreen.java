@@ -22,7 +22,7 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	private record ScrollWidgetEntry(AbstractWidget widget, int baseY) {
 	}
 
-	private record SectionLabelEntry(Component text, int x, int baseY) {
+	private record SectionLabelEntry(Component text, int x, int baseY, boolean underline) {
 	}
 
 	private final List<ScrollWidgetEntry> scrollWidgets = new ArrayList<>();
@@ -125,8 +125,13 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 	}
 
 	protected void addSectionLabel(Component label, int x, int baseY) {
-		sectionLabels.add(new SectionLabelEntry(label, x, baseY));
+		sectionLabels.add(new SectionLabelEntry(label, x, baseY, true));
 		contentHeight = Math.max(contentHeight, baseY + 14);
+	}
+
+	protected void addInfoNote(Component note, int x, int baseY) {
+		sectionLabels.add(new SectionLabelEntry(note, x, baseY, false));
+		contentHeight = Math.max(contentHeight, baseY + 13);
 	}
 
 	protected void syncScrollPositions() {
@@ -268,8 +273,17 @@ public abstract class AbstractScrollableConfigScreen extends AbstractCustomizabl
 		for (SectionLabelEntry label : sectionLabels) {
 			int drawY = top + label.baseY() - scrollOffset;
 			if (drawY + 12 >= top && drawY <= bottom) {
-				graphics.drawString(this.font, label.text(), label.x(), drawY, 0xFF7FD4E6, true);
-				graphics.fill(label.x(), drawY + 10, Math.min(bodyAreaRight - 14, label.x() + contentPanelWidth()), drawY + 11, 0x447FD4E6);
+				if (label.underline()) {
+					graphics.drawString(this.font, label.text(), label.x(), drawY, 0xFF7FD4E6, true);
+					graphics.fill(label.x(), drawY + 10, Math.min(bodyAreaRight - 14, label.x() + contentPanelWidth()), drawY + 11, 0x447FD4E6);
+				} else {
+					String raw = label.text().getString();
+					int maxW = Math.max(40, contentPanelWidth());
+					if (this.font.width(raw) > maxW) {
+						raw = this.font.plainSubstrByWidth(raw, maxW - 6) + "...";
+					}
+					graphics.drawString(this.font, raw, label.x(), drawY, 0xFF94A3B8, false);
+				}
 			}
 		}
 		for (ScrollWidgetEntry entry : scrollWidgets) {
